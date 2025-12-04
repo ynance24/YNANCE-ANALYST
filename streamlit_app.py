@@ -40,14 +40,23 @@ st.markdown(
 )
 
 # -------------------------------
-# 상위 메뉴 (가로 버튼)
+# 상위 메뉴 (가로 텍스트 버튼 스타일)
 # -------------------------------
-menu_cols = st.columns(len(MENU_ITEMS))
-for idx, item in enumerate(MENU_ITEMS):
-    is_active = st.session_state.selected_menu == item
-    color = "#28a745" if is_active else "#888888"  # 선택 시 초록, 기본 회색
-    if menu_cols[idx].button(item):
-        st.session_state.selected_menu = item
+menu_html = ""
+for item in MENU_ITEMS:
+    color = "#28a745" if st.session_state.selected_menu == item else "#888888"
+    menu_html += f"""
+        <span style='margin-right:30px; cursor:pointer; color:{color}; font-weight:bold; font-size:18px;'
+              onclick="window.location.href='#{item}'">{item}</span>
+    """
+st.markdown(f"<div style='text-align:center; margin-bottom:20px;'>{menu_html}</div>", unsafe_allow_html=True)
+
+# -------------------------------
+# 메뉴 클릭 감지 및 session_state 업데이트
+# -------------------------------
+# Streamlit에서 JS 이벤트 직접 감지 불가 → selectbox로 대신 처리
+selected = st.selectbox("메뉴 선택", MENU_ITEMS, index=MENU_ITEMS.index(st.session_state.selected_menu))
+st.session_state.selected_menu = selected
 
 # -------------------------------
 # 화면 내용 출력 함수
@@ -97,5 +106,4 @@ MENU_FUNCTIONS = {
 # -------------------------------
 # 선택 메뉴 화면 출력
 # -------------------------------
-selected_func = MENU_FUNCTIONS.get(st.session_state.selected_menu, show_home)
-selected_func()
+MENU_FUNCTIONS[st.session_state.selected_menu]()
