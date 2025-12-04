@@ -3,7 +3,8 @@ import streamlit as st
 import pandas as pd
 import requests
 import json
-from datetime import datetime, time as dt_time
+import os
+from datetime import datetime
 
 # -------------------------
 # Config
@@ -15,21 +16,24 @@ st.set_page_config(page_title="YNANCE ANALYST", layout="wide")
 # -------------------------
 SECRETS_PATH = "./secrets.json"
 API_KEYS = {}
-if st.secrets:
+
+if hasattr(st, "secrets") and st.secrets:
     API_KEYS = st.secrets
-elif os.path.exists(SECRETS_PATH):
-    with open(SECRETS_PATH, "r") as f:
-        API_KEYS = json.load(f)
+else:
+    if os.path.exists(SECRETS_PATH):
+        with open(SECRETS_PATH, "r") as f:
+            API_KEYS = json.load(f)
 
 BINANCE_API_KEY = API_KEYS.get("BINANCE_API_KEY")
-ALPHA_VANTAGE_API = API_KEYS.get("ALPHA_VANTAGE_API")
+BINANCE_SECRET_KEY = API_KEYS.get("BINANCE_SECRET_KEY")
 FRED_API_KEY = API_KEYS.get("FRED_API_KEY")
+ALPHA_VANTAGE_API = API_KEYS.get("ALPHA_VANTAGE_API")
 
 # -------------------------
 # Session State 초기화
 # -------------------------
-if "report_result" not in st.session_state:
-    st.session_state.report_result = ""
+if "report_generated" not in st.session_state:
+    st.session_state.report_generated = False
 
 # -------------------------
 # 메뉴
@@ -41,12 +45,12 @@ selected_menu = st.radio("", menus, index=0, horizontal=True)
 # Helper Functions
 # -------------------------
 def fetch_alpha_vantage(symbol):
-    """전일 종가 데이터"""
     if not ALPHA_VANTAGE_API:
         return pd.DataFrame()
     try:
         url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol={symbol}&apikey={ALPHA_VANTAGE_API}&outputsize=compact"
         resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
         data = resp.json().get("Time Series (Daily)", {})
         df = pd.DataFrame.from_dict(data, orient="index").astype(float)
         df.index = pd.to_datetime(df.index)
@@ -56,10 +60,10 @@ def fetch_alpha_vantage(symbol):
         return pd.DataFrame()
 
 def fetch_binance(symbol="BTCUSDT"):
-    """전일 종가 데이터"""
     try:
         url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1d&limit=30"
         resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
         data = resp.json()
         df = pd.DataFrame(data, columns=[
             "Open time","Open","High","Low","Close","Volume","Close time",
@@ -73,46 +77,47 @@ def fetch_binance(symbol="BTCUSDT"):
         return pd.DataFrame()
 
 def generate_report():
-    """GEMINI 데이터 기반 Report 생성"""
+    """GEMINI 기반 가상 보고서 생성"""
     now = datetime.now()
-    report_lines = []
-    report_lines.append(f"작성일: {now.strftime('%Y-%m-%d %A %H:%M:%S')}")
-    
-    # 1. 자본시장 이벤트 / 경제지표 요약
-    report_lines.append("\n### 1. 전일까지의 자본시장 이벤트/경제지표 요약")
-    # GEMINI 내부 모니터링 기반 데이터 참조 (예시)
-    report_lines.append("- 주요 경제지표 발표 요약")
-    report_lines.append("- 기업 실적, 정책 이벤트 요약")
-    
-    # 2. NASDAQ/BTC 전일까지 상황
-    report_lines.append("\n### 2. 전일까지 NASDAQ/비트코인 상황")
+    date_str = now.strftime("%Y-%m-%d %A %H:%M:%S")
+
+    # 전일까지 데이터 불러오기
     nasdaq = fetch_alpha_vantage("^IXIC")
     btc = fetch_binance("BTCUSDT")
+    
+    report = f"### Report — Market & Crypto Analysis\n**작성일:** {date_str}\n\n"
+    
+    # 1. 자본시장 이슈
+    report += "### 1. 전일까지의 자본시장 이슈\nGEMINI 모니터링 기반 자본시장 뉴스, 이벤트 요약\n\n"
+    
+    # 2. 이벤트
+    report += "### 2. 전일까지의 이벤트\n경제지표 발표, 기업 실적, 정책 이벤트 등 요약\n\n"
+    
+    # 3. NASDAQ/BTC 전일 상황
     if not nasdaq.empty:
-        report_lines.append(f"- NASDAQ 전일 종가: {nasdaq['4. close'].iloc[-1]:,.2f} USD")
+        report += f"### 3. 전일까지 나스닥/비트코인 상황\nNASDAQ 전일 종가: {nasdaq['4. close'].iloc[-1]:,.2f} USD\n"
+    else:
+        report += "NASDAQ 데이터 없음\n"
     if not btc.empty:
-        report_lines.append(f"- BTC 전일 종가: {btc['Close'].iloc[-1]:,.2f} USD")
+        report += f"BTC 전일 종가: {btc['Close'].iloc[-1]:,.2f} USD\n"
+    else:
+        report += "BTC 데이터 없음\n\n"
     
-    # 3. 종합 분석 / 예측
-    report_lines.append("\n### 3. 종합 분석/예측")
-    report_lines.append("#### Stock 시장 분석/예측")
-    report_lines.append("- 기술적 분석: GEMINI 내부 판단 기준")
-    report_lines.append("- 상승/하락/횡보 가능성 제시")
-    report_lines.append("- 전략 추천: 장기/중기/단기 유리 전략")
+    # 4. 종합 분석/예측
+    report += "### 4. 종합 분석/예측\n- Stock 시장 분석/예측: GEMINI 기반 기술적/시장 변수 종합\n- Crypto 시장 분석/예측: GEMINI 기반 기술적/시장 변수 종합\n"
+    report += "\n- 상승/하락/횡보 가능성 및 장기/중기/단기 전략 추천 포함\n"
     
-    report_lines.append("\n#### Crypto 시장 분석/예측")
-    report_lines.append("- 기술적 분석: GEMINI 내부 판단 기준")
-    report_lines.append("- 상승/하락/횡보 가능성 제시")
-    report_lines.append("- 전략 추천: 장기/중기/단기 유리 전략")
-    
-    return "\n".join(report_lines)
+    return report
 
 # -------------------------
-# Report 화면
+# Report 메뉴
 # -------------------------
 if selected_menu == "Report":
     st.subheader("Report — Market & Crypto Analysis")
-    if st.button("보고서 생성 (전일까지 데이터 기준, 오전 8시까지)"):
-        st.session_state.report_result = generate_report()
-    if st.session_state.report_result:
-        st.text_area("Generated Report", st.session_state.report_result, height=600)
+    
+    if st.button("보고서 생성"):
+        st.session_state.report_generated = True
+    
+    if st.session_state.report_generated:
+        report_content = generate_report()
+        st.markdown(report_content)
