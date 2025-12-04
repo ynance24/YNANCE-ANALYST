@@ -2,12 +2,12 @@ import streamlit as st
 import json
 
 # -------------------------------
-# 페이지 기본 설정
+# 페이지 설정
 # -------------------------------
 st.set_page_config(page_title="Ynance Analyst", layout="wide")
 
 # -------------------------------
-# 세션 초기화
+# 세션 상태 초기화
 # -------------------------------
 if "selected_menu" not in st.session_state:
     st.session_state.selected_menu = "Home"
@@ -32,23 +32,31 @@ except Exception as e:
 # 상단 타이틀
 # -------------------------------
 st.markdown(
-    "<h1 style='text-align:center; color:#333333; margin-bottom:10px;'>YNANCE ANALYST</h1>",
+    "<h1 style='text-align:center; color:#333333; margin-bottom:5px;'>YNANCE ANALYST</h1>",
     unsafe_allow_html=True
 )
 
 # -------------------------------
 # 메뉴 버튼 (가로 정렬)
 # -------------------------------
-menu_cols = st.columns(len(MENU_ITEMS))
+menu_html = ""
+for item in MENU_ITEMS:
+    color = "#28a745" if st.session_state.selected_menu == item else "#888888"
+    menu_html += f"""
+        <span style='margin-right:30px; cursor:pointer; color:{color}; font-weight:bold; font-size:18px;'
+              onclick="window.parent.postMessage({{'menu_click':'{item}'}}, '*')">
+              {item}
+        </span>
+    """
+st.markdown(f"<div style='text-align:center'>{menu_html}</div>", unsafe_allow_html=True)
+
+# -------------------------------
+# Streamlit 버튼 (클릭 한 번으로 상태 변경)
+# -------------------------------
+cols = st.columns(len(MENU_ITEMS))
 for idx, item in enumerate(MENU_ITEMS):
-    is_active = st.session_state.selected_menu == item
-    color = "#28a745" if is_active else "#888888"
-    if menu_cols[idx].button(item):
+    if cols[idx].button(item, key=f"btn_{item}"):
         st.session_state.selected_menu = item
-    menu_cols[idx].markdown(
-        f"<div style='text-align:center; color:{color}; font-weight:bold; font-size:18px;'>{item}</div>",
-        unsafe_allow_html=True
-    )
 
 # -------------------------------
 # 화면 내용 함수
