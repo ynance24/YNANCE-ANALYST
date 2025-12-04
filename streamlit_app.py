@@ -90,18 +90,18 @@ def fetch_fred(series_id):
         return pd.DataFrame()
 
 # -------------------------
-# Report 작성 함수
+# 보고서 작성 함수
 # -------------------------
 def generate_reports():
     today = datetime.now()
-    report_time_cutoff = dtime(8, 0)
-    if today.time() > report_time_cutoff:
+    cutoff_time = dtime(8, 0)
+    if today.time() > cutoff_time:
         st.warning("보고서는 오전 8시 이전 데이터를 기준으로 생성해야 합니다.")
         return
     
     reports = {}
 
-    # 1. Stock Report
+    # Stock Report
     stock_report = "### Stock Report\n"
     stock_report += f"작성일: {today.strftime('%Y-%m-%d %A %H:%M:%S')}\n\n"
     stock_report += "1. 전일까지 주목 요인: GEMINI 모니터링 기반 자본시장 뉴스/정책/경제 이벤트 요약\n"
@@ -110,7 +110,7 @@ def generate_reports():
     stock_report += "4. 장기/중기/단기 전략 추천 확률\n"
     reports["Stock Report"] = stock_report
 
-    # 2. Crypto Report
+    # Crypto Report
     crypto_report = "### Crypto Report\n"
     crypto_report += f"작성일: {today.strftime('%Y-%m-%d %A %H:%M:%S')}\n\n"
     crypto_report += "1. 전일까지 유의미한 암호화폐 이벤트/뉴스 요약\n"
