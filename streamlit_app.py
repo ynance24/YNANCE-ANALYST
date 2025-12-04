@@ -1,4 +1,4 @@
-# streamlit_app_home_fixed.py
+# streamlit_app_home_fixed_v2.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,10 +9,12 @@ from binance.client import Client
 import matplotlib.pyplot as plt
 
 # -------------------------
-# Config
+# 기존 메뉴/화면 구조 유지
 # -------------------------
-st.set_page_config(page_title="YNANCE Home Dashboard", layout="wide")
-st.markdown("# YNANCE Home Dashboard", unsafe_allow_html=True)
+# 예시로 기존 헤더와 사이드바 유지
+st.markdown("# 기존 프로젝트 메인 화면")
+st.sidebar.title("메뉴")
+st.sidebar.radio("탭 선택", ["Home", "분석", "설정"])
 
 # -------------------------
 # Load secrets.json
@@ -38,14 +40,19 @@ def get_alpha_weekly(symbol):
         st.warning(f"Alpha Vantage API 호출 실패 ({symbol}): {e}")
         return pd.DataFrame()
     data = data.sort_index()
-    data['MA20'] = data['4. close'].rolling(20).mean()
-    data['EMA20'] = data['4. close'].ewm(span=20, adjust=False).mean()
-    delta = data['4. close'].diff()
+    # 컬럼명 통일
+    data = data.rename(columns={
+        '1. open':'open', '2. high':'high', '3. low':'low', 
+        '4. close':'close', '5. volume':'volume'
+    })
+    data['MA20'] = data['close'].rolling(20).mean()
+    data['EMA20'] = data['close'].ewm(span=20, adjust=False).mean()
+    delta = data['close'].diff()
     up, down = delta.clip(lower=0), -delta.clip(upper=0)
     roll_up, roll_down = up.rolling(14).mean(), down.rolling(14).mean()
     RS = roll_up / roll_down
     data['RSI'] = 100 - (100 / (1 + RS))
-    data['MACD'] = data['4. close'].ewm(span=12, adjust=False).mean() - data['4. close'].ewm(span=26, adjust=False).mean()
+    data['MACD'] = data['close'].ewm(span=12, adjust=False).mean() - data['close'].ewm(span=26, adjust=False).mean()
     return data.tail(52)
 
 def get_binance_weekly(symbol):
@@ -110,9 +117,9 @@ col1, col2, col3 = st.columns(3)
 with col1:
     nasdaq = get_alpha_weekly("QQQ")
     if not nasdaq.empty:
-        last_close = nasdaq['4. close'].iloc[-1]
-        prev_close = nasdaq['4. close'].iloc[-2]
-        vol_change = (pd.to_numeric(nasdaq['5. volume'].iloc[-1]) - pd.to_numeric(nasdaq['5. volume'].iloc[-2])) / pd.to_numeric(nasdaq['5. volume'].iloc[-2]) * 100
+        last_close = nasdaq['close'].iloc[-1]
+        prev_close = nasdaq['close'].iloc[-2]
+        vol_change = (nasdaq['volume'].iloc[-1] - nasdaq['volume'].iloc[-2]) / nasdaq['volume'].iloc[-2] * 100
         st.metric("NASDAQ Close", f"{last_close:.2f}", delta=f"{last_close-prev_close:.2f}")
         st.metric("Volume Change (%)", f"{vol_change:.2f}%")
         plot_candlestick(nasdaq, "NASDAQ 주봉(52주)")
@@ -121,9 +128,9 @@ with col1:
 with col2:
     kospi = get_alpha_weekly("069500.KQ")
     if not kospi.empty:
-        last_close = kospi['4. close'].iloc[-1]
-        prev_close = kospi['4. close'].iloc[-2]
-        vol_change = (pd.to_numeric(kospi['5. volume'].iloc[-1]) - pd.to_numeric(kospi['5. volume'].iloc[-2])) / pd.to_numeric(kospi['5. volume'].iloc[-2]) * 100
+        last_close = kospi['close'].iloc[-1]
+        prev_close = kospi['close'].iloc[-2]
+        vol_change = (kospi['volume'].iloc[-1] - kospi['volume'].iloc[-2]) / kospi['volume'].iloc[-2] * 100
         st.metric("KOSPI Close", f"{last_close:.2f}", delta=f"{last_close-prev_close:.2f}")
         st.metric("Volume Change (%)", f"{vol_change:.2f}%")
         plot_candlestick(kospi, "KOSPI 주봉(52주)")
