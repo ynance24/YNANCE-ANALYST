@@ -1,63 +1,161 @@
+# streamlit_app.py
+import streamlit as st
+import pandas as pd
+import requests
+import json
+from datetime import datetime
+import os
+import matplotlib.pyplot as plt
+
 # -------------------------
-# Home 화면 (업그레이드)
+# Config
+# -------------------------
+st.set_page_config(page_title="YNANCE ANALYST", layout="wide")
+
+# -------------------------
+# secrets.json 불러오기
+# -------------------------
+SECRETS_PATH = "./secrets.json"
+API_KEYS = {}
+if os.path.exists(SECRETS_PATH):
+    with open(SECRETS_PATH, "r") as f:
+        API_KEYS = json.load(f)
+
+BINANCE_API_KEY = API_KEYS.get("BINANCE_API_KEY")
+BINANCE_SECRET_KEY = API_KEYS.get("BINANCE_SECRET_KEY")
+FRED_API_KEY = API_KEYS.get("FRED_API_KEY")
+ALPHA_VANTAGE_API = API_KEYS.get("ALPHA_VANTAGE_API")
+COINGECKO_API = API_KEYS.get("COINGECKO_API")
+GEMINI_API_KEY = API_KEYS.get("GEMINI_API_KEY")
+
+# -------------------------
+# CSS
+# -------------------------
+st.markdown("""
+<style>
+body {background-color: #f5f5f5;}
+</style>
+""", unsafe_allow_html=True)
+st.markdown("# YNANCE ANALYST", unsafe_allow_html=True)
+
+# -------------------------
+# Session State 초기화
+# -------------------------
+if "home_data" not in st.session_state:
+    st.session_state.home_data = {}
+
+# -------------------------
+# 메뉴
+# -------------------------
+menus = ["Home", "Markets", "Trading", "Talk", "Report", "Assets"]
+selected_menu = st.radio("", menus, index=0, horizontal=True)
+
+# -------------------------
+# Helper Functions
+# -------------------------
+def fetch_alpha_vantage(symbol):
+    if not ALPHA_VANTAGE_API:
+        return pd.DataFrame()
+    try:
+        url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol={symbol}&apikey={ALPHA_VANTAGE_API}&outputsize=compact"
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json().get("Time Series (Daily)", {})
+        df = pd.DataFrame.from_dict(data, orient="index").astype(float)
+        df.index = pd.to_datetime(df.index)
+        df = df.sort_index()
+        return df
+    except Exception as e:
+        st.warning(f"Alpha Vantage API 호출 실패 ({symbol}): {e}")
+        return pd.DataFrame()
+
+def fetch_binance(symbol="BTCUSDT"):
+    try:
+        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1d&limit=30"
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        df = pd.DataFrame(data, columns=[
+            "Open time","Open","High","Low","Close","Volume","Close time",
+            "Quote asset volume","Num trades","Taker buy base","Taker buy quote","Ignore"
+        ])
+        df["Open time"] = pd.to_datetime(df["Open time"], unit="ms")
+        numeric_cols = ["Open","High","Low","Close","Volume"]
+        df[numeric_cols] = df[numeric_cols].astype(float)
+        return df[["Open time"] + numeric_cols]
+    except Exception as e:
+        st.warning(f"Binance API 호출 실패 ({symbol}): {e}")
+        return pd.DataFrame()
+
+def fetch_coingecko_price(id="bitcoin"):
+    try:
+        url = f"https://api.coingecko.com/api/v3/coins/{id}/market_chart?vs_currency=usd&days=30"
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        prices = pd.DataFrame(data["prices"], columns=["timestamp","price"])
+        prices["timestamp"] = pd.to_datetime(prices["timestamp"], unit="ms")
+        return prices
+    except:
+        return pd.DataFrame()
+
+def fetch_fred(series_id):
+    if not FRED_API_KEY:
+        return pd.DataFrame()
+    try:
+        url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={FRED_API_KEY}&file_type=json"
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json().get("observations", [])
+        df = pd.DataFrame(data)
+        if not df.empty:
+            df["date"] = pd.to_datetime(df["date"])
+            df["value"] = pd.to_numeric(df["value"], errors="coerce")
+        return df
+    except Exception as e:
+        st.warning(f"FRED API 호출 실패 ({series_id}): {e}")
+        return pd.DataFrame()
+
+def fetch_fng_crypto():
+    try:
+        resp = requests.get("https://api.alternative.me/fng/?limit=1&crypto=1", timeout=10)
+        resp.raise_for_status()
+        data = resp.json().get("data", [{}])[0]
+        return {"value": int(data.get("value",0)), "classification": data.get("value_classification","Unknown")}
+    except:
+        return {"value":0,"classification":"Unknown"}
+
+def fetch_fng_stock():
+    try:
+        resp = requests.get("https://api.alternative.me/fng/?limit=1", timeout=10)
+        resp.raise_for_status()
+        data = resp.json().get("data", [{}])[0]
+        return {"value": int(data.get("value",0)), "classification": data.get("value_classification","Unknown")}
+    except:
+        return {"value":0,"classification":"Unknown"}
+
+# -------------------------
+# Home 화면
 # -------------------------
 if selected_menu == "Home":
-    st.subheader("Home — Market Overview & Indicators")
-    
-    # 상단 영역: NASDAQ / KOSPI / BTC
+    # NASDAQ / KOSPI / BTC 전일 종가
     col1, col2, col3 = st.columns(3)
-
-    # NASDAQ
     with col1:
         nasdaq = fetch_alpha_vantage("^IXIC")
         if not nasdaq.empty:
-            df = nasdaq.copy().sort_index()
-            df['MA20'] = df['4. close'].rolling(20).mean()
-            df['EMA20'] = df['4. close'].ewm(span=20, adjust=False).mean()
-            delta = df['4. close'].diff()
-            up, down = delta.clip(lower=0), -delta.clip(upper=0)
-            RS = up.rolling(14).mean() / down.rolling(14).mean()
-            df['RSI'] = 100 - (100 / (1 + RS))
-            df['MACD'] = df['4. close'].ewm(span=12, adjust=False).mean() - df['4. close'].ewm(span=26, adjust=False).mean()
-            st.line_chart(df[['4. close','MA20','EMA20']])
-            st.metric("NASDAQ 변동률", f"{df['4. close'].pct_change().iloc[-1]*100:.2f}%")
-        else:
-            st.warning("NASDAQ 데이터 로딩 실패")
-    
-    # KOSPI
+            st.line_chart(nasdaq["4. close"])
+        st.write("NASDAQ 전일 종가")
     with col2:
         kospi = fetch_alpha_vantage("^KS11")
         if not kospi.empty:
-            df = kospi.copy().sort_index()
-            df['MA20'] = df['4. close'].rolling(20).mean()
-            df['EMA20'] = df['4. close'].ewm(span=20, adjust=False).mean()
-            delta = df['4. close'].diff()
-            up, down = delta.clip(lower=0), -delta.clip(upper=0)
-            RS = up.rolling(14).mean() / down.rolling(14).mean()
-            df['RSI'] = 100 - (100 / (1 + RS))
-            df['MACD'] = df['4. close'].ewm(span=12, adjust=False).mean() - df['4. close'].ewm(span=26, adjust=False).mean()
-            st.line_chart(df[['4. close','MA20','EMA20']])
-            st.metric("KOSPI 변동률", f"{df['4. close'].pct_change().iloc[-1]*100:.2f}%")
-        else:
-            st.warning("KOSPI 데이터 로딩 실패")
-    
-    # BTC
+            st.line_chart(kospi["4. close"])
+        st.write("KOSPI 전일 종가")
     with col3:
         btc = fetch_binance("BTCUSDT")
         if not btc.empty:
-            df = btc.copy().sort_values("Open time")
-            df['MA20'] = df['Close'].rolling(20).mean()
-            df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
-            delta = df['Close'].diff()
-            up, down = delta.clip(lower=0), -delta.clip(upper=0)
-            RS = up.rolling(14).mean() / down.rolling(14).mean()
-            df['RSI'] = 100 - (100 / (1 + RS))
-            df['MACD'] = df['Close'].ewm(span=12, adjust=False).mean() - df['Close'].ewm(span=26, adjust=False).mean()
-            st.line_chart(df[['Close','MA20','EMA20']])
-            st.metric("BTC 변동률", f"{df['Close'].pct_change().iloc[-1]*100:.2f}%")
-        else:
-            st.warning("BTC 데이터 로딩 실패")
-    
+            st.line_chart(btc["Close"])
+        st.write("BTC 전일 종가")
+
     # Fear & Greed Index
     col4, col5 = st.columns(2)
     fng_stock = fetch_fng_stock()
@@ -66,13 +164,13 @@ if selected_menu == "Home":
         st.metric("Stock F&G", f"{fng_stock['value']}", f"{fng_stock['classification']}")
     with col5:
         st.metric("Crypto F&G", f"{fng_crypto['value']}", f"{fng_crypto['classification']}")
-    
+
     # FRED 주요 지표
     st.markdown("### FRED 주요 경제지표")
     fred_series = {
         "DXY": "DTWEXBGS",
         "M2": "M2SL",
-        "US Base Money": "BOGMBASE",
+        "US Federal Reserve Base Money": "BOGMBASE",
         "10Y Treasury Rate": "DGS10",
         "2Y Treasury Rate": "DGS2"
     }
@@ -81,7 +179,5 @@ if selected_menu == "Home":
         if not df.empty:
             st.line_chart(df.set_index("date")["value"])
             st.write(name)
-        else:
-            st.warning(f"{name} 데이터 로딩 실패")
-    
-    st.caption("전일 종가/주봉 기준 데이터, 기술적지표 포함 (MA/EMA/RSI/MACD)")
+
+    st.caption("데이터는 전일 종가/전일 시점 기준으로 REST API에서 가져옵니다.")
