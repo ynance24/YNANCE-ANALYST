@@ -14,7 +14,7 @@ import os
 st.set_page_config(page_title="YNANCE ANALYST", layout="wide")
 
 # -------------------------
-# secrets.json 불러오기
+# secrets.json 불러오기 및 세션 상태에 저장
 # -------------------------
 SECRETS_PATH = "./secrets.json"
 BINANCE_API_KEY = BINANCE_API_SECRET_KEY = GEMINI_API_KEY = None
@@ -24,6 +24,10 @@ if os.path.exists(SECRETS_PATH):
         BINANCE_API_KEY = secrets.get("BINANCE_API_KEY")
         BINANCE_API_SECRET_KEY = secrets.get("BINANCE_API_SECRET_KEY")
         GEMINI_API_KEY = secrets.get("GEMINI_API_KEY")
+
+# GEMINI API Key를 세션 상태에 저장
+if "GEMINI_API_KEY" not in st.session_state:
+    st.session_state.GEMINI_API_KEY = GEMINI_API_KEY
 
 # -------------------------
 # CSS
@@ -94,11 +98,12 @@ def run_ws(ws_url, on_message):
         st.error(f"WebSocket 오류: {e}")
 
 def fetch_gemini_data():
-    if not GEMINI_API_KEY:
+    gemini_key = st.session_state.get("GEMINI_API_KEY")
+    if not gemini_key:
         st.warning("GEMINI_API_KEY 없음")
         return pd.DataFrame()
     try:
-        headers = {"X-GEMINI-APIKEY": GEMINI_API_KEY}
+        headers = {"X-GEMINI-APIKEY": gemini_key}
         resp = requests.get("https://api.gemini.com/v1/pubticker/btcusd", headers=headers)
         if resp.ok:
             data = resp.json()
