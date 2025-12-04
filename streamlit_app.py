@@ -4,7 +4,7 @@ import pandas as pd
 import requests
 import json
 import os
-from datetime import datetime, time
+from datetime import datetime, time as dtime
 
 # -------------------------
 # Config
@@ -30,7 +30,7 @@ KOSIS_API_KEY = API_KEYS.get("KOSIS_API_KEY")
 # Session State 초기화
 # -------------------------
 if "reports" not in st.session_state:
-    st.session_state.reports = []
+    st.session_state.reports = {}
 
 # -------------------------
 # 메뉴
@@ -42,7 +42,6 @@ selected_menu = st.radio("", menus, index=0, horizontal=True)
 # Helper Functions
 # -------------------------
 def fetch_alpha_vantage(symbol):
-    """전일 종가 기준 주식 지수"""
     if not ALPHA_VANTAGE_API:
         return pd.DataFrame()
     try:
@@ -58,7 +57,6 @@ def fetch_alpha_vantage(symbol):
         return pd.DataFrame()
 
 def fetch_binance(symbol="BTCUSDT"):
-    """전일 종가 기준 BTC/ETH"""
     try:
         url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1d&limit=30"
         resp = requests.get(url, timeout=10)
@@ -76,7 +74,6 @@ def fetch_binance(symbol="BTCUSDT"):
         return pd.DataFrame()
 
 def fetch_fred(series_id):
-    """FRED 지표 데이터"""
     if not FRED_API_KEY:
         return pd.DataFrame()
     try:
@@ -92,71 +89,49 @@ def fetch_fred(series_id):
     except:
         return pd.DataFrame()
 
-def fetch_coingecko(symbol="bitcoin"):
-    """CoinGecko 전일 데이터"""
-    try:
-        url = f"https://api.coingecko.com/api/v3/coins/{symbol}/market_chart?vs_currency=usd&days=1"
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        return data
-    except:
-        return {}
-
 # -------------------------
-# 보고서 생성 함수
+# Report 작성 함수
 # -------------------------
-def generate_stock_report():
-    now = datetime.now()
-    report = {
-        "title": f"Stock Report — {now.strftime('%Y-%m-%d %A %H:%M:%S')}",
-        "headline": "Stock Report",
-        "market_issues": "미국채, 금리, 정책, 뉴스 등 전일 자본시장 주요 요인 요약",
-        "liquidity": "DXY, M2, 미국채장단기 금리, 발행량 등 기반 유동성 평가",
-        "index_summary": "나스닥/코스피 상승/횡보/하락 확률 표시",
-        "strategy": "장기/중기/단기 유리 전략 확률 표시"
-    }
-    return report
+def generate_reports():
+    today = datetime.now()
+    report_time_cutoff = dtime(8, 0)
+    if today.time() > report_time_cutoff:
+        st.warning("보고서는 오전 8시 이전 데이터를 기준으로 생성해야 합니다.")
+        return
+    
+    reports = {}
 
-def generate_crypto_report():
-    now = datetime.now()
-    report = {
-        "title": f"Crypto Report — {now.strftime('%Y-%m-%d %A %H:%M:%S')}",
-        "headline": "Crypto Report",
-        "market_issues": "암호화폐 시장 유의미한 이벤트/뉴스 요약",
-        "impact_summary": "NASDAQ, 금리, 정책 등 전일 암호화폐시장 영향 요약",
-        "liquidity": "스테이블코인 증감량, 대규모 입출금, 타거래소 움직임 등 유동성 평가",
-        "index_summary": "BTC/ETH 상승/횡보/하락 확률 표시",
-        "strategy": "장기/중기/단기, Spot/Futures 유리 전략 확률 표시"
-    }
-    return report
+    # 1. Stock Report
+    stock_report = "### Stock Report\n"
+    stock_report += f"작성일: {today.strftime('%Y-%m-%d %A %H:%M:%S')}\n\n"
+    stock_report += "1. 전일까지 주목 요인: GEMINI 모니터링 기반 자본시장 뉴스/정책/경제 이벤트 요약\n"
+    stock_report += "2. 유동성 평가: DXY, M2, 미국채 장단기 금리, 발행량 등 종합\n"
+    stock_report += "3. 나스닥/코스피 상승/횡보/하락 가능성 확률\n"
+    stock_report += "4. 장기/중기/단기 전략 추천 확률\n"
+    reports["Stock Report"] = stock_report
+
+    # 2. Crypto Report
+    crypto_report = "### Crypto Report\n"
+    crypto_report += f"작성일: {today.strftime('%Y-%m-%d %A %H:%M:%S')}\n\n"
+    crypto_report += "1. 전일까지 유의미한 암호화폐 이벤트/뉴스 요약\n"
+    crypto_report += "2. 전일 주식시장/금리/정책 영향을 받은 주요 사항 요약\n"
+    crypto_report += "3. 유동성 평가: 스테이블코인 증감량, 거래소/지갑 입출금 대규모 이슈\n"
+    crypto_report += "4. BTC/ETH 상승/횡보/하락 가능성 확률\n"
+    crypto_report += "5. 장기/중기/단기, Spot/Futures 전략 추천 확률\n"
+    reports["Crypto Report"] = crypto_report
+
+    st.session_state.reports = reports
+    st.success("보고서가 생성되었습니다!")
 
 # -------------------------
 # Report 메뉴
 # -------------------------
 if selected_menu == "Report":
     st.subheader("Report — Market & Crypto Analysis")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("증권보고서 생성"):
-            stock_report = generate_stock_report()
-            st.session_state.reports.append(stock_report)
     
-    with col2:
-        if st.button("암호화폐보고서 생성"):
-            crypto_report = generate_crypto_report()
-            st.session_state.reports.append(crypto_report)
-
+    if st.button("보고서 생성"):
+        generate_reports()
+    
     if st.session_state.reports:
-        titles = [r["title"] for r in st.session_state.reports]
-        selected = st.selectbox("보고서 선택", titles)
-        report = next(r for r in st.session_state.reports if r["title"] == selected)
-        st.markdown(f"### {report['headline']}")
-        st.markdown(f"**작성일:** {report['title'].split(' — ')[1]}")
-        st.markdown(f"### 1. 전일까지의 자본시장/암호화폐 이슈\n{report.get('market_issues','')}")
-        if "impact_summary" in report:
-            st.markdown(f"### 2. 전일까지의 영향 요약\n{report['impact_summary']}")
-        st.markdown(f"### 3. 유동성 평가\n{report.get('liquidity','')}")
-        st.markdown(f"### 4. 지수/가격 가능성\n{report.get('index_summary','')}")
-        st.markdown(f"### 5. 전략 추천\n{report.get('strategy','')}")
+        report_choice = st.selectbox("생성된 보고서 선택", list(st.session_state.reports.keys()))
+        st.markdown(st.session_state.reports[report_choice])
