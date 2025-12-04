@@ -42,12 +42,11 @@ st.markdown(
 # -------------------------------
 # 상위 메뉴 (가로 버튼)
 # -------------------------------
-cols = st.columns(len(MENU_ITEMS))
+menu_cols = st.columns(len(MENU_ITEMS))
 for idx, item in enumerate(MENU_ITEMS):
     is_active = st.session_state.selected_menu == item
-    button_label = f"**{item}**" if is_active else item
-    button_color = "28a745" if is_active else "888888"
-    if cols[idx].button(button_label, key=f"menu_{item}"):
+    color = "#28a745" if is_active else "#888888"  # 선택 시 초록, 기본 회색
+    if menu_cols[idx].button(item):
         st.session_state.selected_menu = item
 
 # -------------------------------
