@@ -35,28 +35,39 @@ except Exception as e:
 # 상단 타이틀
 # -------------------------------
 st.markdown(
-    "<h1 style='text-align:center; color:#333333; margin-bottom:10px;'>YNANCE ANALYST</h1>",
+    "<h1 style='text-align:center; color:#333333; margin-bottom:20px;'>YNANCE ANALYST</h1>",
     unsafe_allow_html=True
 )
 
 # -------------------------------
-# 상위 메뉴 (가로 텍스트 버튼 스타일)
+# 메뉴 (radio를 가로로 CSS 처리)
 # -------------------------------
-menu_html = ""
-for item in MENU_ITEMS:
-    color = "#28a745" if st.session_state.selected_menu == item else "#888888"
-    menu_html += f"""
-        <span style='margin-right:30px; cursor:pointer; color:{color}; font-weight:bold; font-size:18px;'
-              onclick="window.location.href='#{item}'">{item}</span>
-    """
-st.markdown(f"<div style='text-align:center; margin-bottom:20px;'>{menu_html}</div>", unsafe_allow_html=True)
+selected_menu = st.radio(
+    "",
+    MENU_ITEMS,
+    index=MENU_ITEMS.index(st.session_state.selected_menu),
+    horizontal=True
+)
+st.session_state.selected_menu = selected_menu
 
-# -------------------------------
-# 메뉴 클릭 감지 및 session_state 업데이트
-# -------------------------------
-# Streamlit에서 JS 이벤트 직접 감지 불가 → selectbox로 대신 처리
-selected = st.selectbox("메뉴 선택", MENU_ITEMS, index=MENU_ITEMS.index(st.session_state.selected_menu))
-st.session_state.selected_menu = selected
+# CSS로 radio 버튼 색상 변경
+st.markdown(
+    """
+    <style>
+    div[role="radiogroup"] > label > div {
+        display: inline-block;
+        margin-right: 25px;
+        font-weight: bold;
+        font-size: 18px;
+        color: #888888;
+    }
+    div[role="radiogroup"] > label[aria-checked="true"] > div {
+        color: #28a745 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 # -------------------------------
 # 화면 내용 출력 함수
