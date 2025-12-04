@@ -17,7 +17,7 @@ st.set_page_config(page_title="YNANCE ANALYST", layout="wide")
 # secrets.json 불러오기
 # -------------------------
 SECRETS_PATH = "./secrets.json"
-BINANCE_API_KEY = BINANCE_API_SECRET_KEY = GEMINI_API_KEY = None
+BINANCE_API_KEY, BINANCE_API_SECRET_KEY, GEMINI_API_KEY = None, None, None
 if os.path.exists(SECRETS_PATH):
     with open(SECRETS_PATH, "r") as f:
         secrets = json.load(f)
@@ -49,14 +49,27 @@ st.markdown("# YNANCE ANALYST", unsafe_allow_html=True)
 # -------------------------
 # Session State 초기화
 # -------------------------
-if "spot_df" not in st.session_state: st.session_state.spot_df = pd.DataFrame()
-if "fut_df" not in st.session_state: st.session_state.fut_df = pd.DataFrame()
-if "klines" not in st.session_state: st.session_state.klines = pd.DataFrame()
-if "threads" not in st.session_state: st.session_state.threads = {}
-if "depth_symbol" not in st.session_state: st.session_state.depth_symbol = None
-if "fund_rate" not in st.session_state: st.session_state.fund_rate = 0
-if "symbol_list" not in st.session_state: st.session_state.symbol_list = []
-if "gemini_data" not in st.session_state: st.session_state.gemini_data = pd.DataFrame()
+state_defaults = {
+    "spot_df": pd.DataFrame(),
+    "fut_df": pd.DataFrame(),
+    "klines": pd.DataFrame(),
+    "threads": {},
+    "depth_symbol": None,
+    "fund_rate": 0,
+    "symbol_list": [],
+    "gemini_data": pd.DataFrame()
+}
+
+for key, val in state_defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
+
+# -------------------------
+# 메뉴
+# -------------------------
+menus = ["Home", "Markets", "Trading", "Talk", "Report", "Assets"]
+selected_menu = st.radio("", menus, index=0, horizontal=True)
+st.session_state.selected_menu = selected_menu
 
 # -------------------------
 # Helper Functions
@@ -76,18 +89,14 @@ def parse_ticker(msg):
                 "pct": float(x.get("P") or 0)
             })
         return pd.DataFrame(rows)
-    except:
+    except Exception:
         return pd.DataFrame()
 
 def run_ws(ws_url, on_message):
-    try:
-        ws = websocket.WebSocketApp(ws_url, on_message=on_message)
-        ws.run_forever()
-    except Exception as e:
-        st.error(f"WebSocket 오류: {e}")
+    ws = websocket.WebSocketApp(ws_url, on_message=on_message)
+    ws.run_forever()
 
 def fetch_gemini_data():
-    """GEMINI API에서 데이터를 가져오는 예시 함수"""
     if not GEMINI_API_KEY:
         st.warning("GEMINI_API_KEY 없음")
         return pd.DataFrame()
@@ -112,16 +121,7 @@ def fetch_gemini_data():
         return pd.DataFrame()
 
 # -------------------------
-# 메뉴 구조 정의
-# -------------------------
-class MenuItem:
-    def __init__(self, name, func, submenus=None):
-        self.name = name
-        self.func = func
-        self.submenus = submenus or []
-
-# -------------------------
-# 메뉴 처리 함수
+# 메뉴별 페이지 처리 함수
 # -------------------------
 def home_page():
     st.subheader("Home — Fear & Greed Index")
@@ -161,18 +161,15 @@ def markets_page():
             st.session_state.fut_df = df.sort_values("volume", ascending=False).reset_index(drop=True)
             st.session_state.symbol_list = df["symbol"].tolist()
 
-    # WebSocket 실행
-    if market_cat == "Crypto":
-        if market_type=="Spot":
-            if "spot_thread" not in st.session_state.threads:
-                t = threading.Thread(target=run_ws, args=(SPOT_WS, spot_on_message), daemon=True)
-                t.start(); st.session_state.threads["spot_thread"] = t
-            df = st.session_state.spot_df
-        else:
-            if "fut_thread" not in st.session_state.threads:
-                t = threading.Thread(target=run_ws, args=(FUT_WS, fut_on_message), daemon=True)
-                t.start(); st.session_state.threads["fut_thread"] = t
-            df = st.session_state.fut_df
+    if market_cat=="Crypto":
+        df = st.session_state.spot_df if market_type=="Spot" else st.session_state.fut_df
+        thread_key = f"{market_type}_thread"
+        ws_url = SPOT_WS if market_type=="Spot" else FUT_WS
+        on_message = spot_on_message if market_type=="Spot" else fut_on_message
+        if thread_key not in st.session_state.threads:
+            t = threading.Thread(target=run_ws, args=(ws_url, on_message), daemon=True)
+            t.start()
+            st.session_state.threads[thread_key] = t
     else:
         df = pd.DataFrame()
 
@@ -202,14 +199,7 @@ def trading_page():
         try:
             data = json.loads(msg).get("k", {})
             if not data: return
-            candle = {
-                "t": int(data.get("t")),
-                "o": float(data.get("o")),
-                "h": float(data.get("h")),
-                "l": float(data.get("l")),
-                "c": float(data.get("c")),
-                "v": float(data.get("v"))
-            }
+            candle = {k: float(data[k]) if k!="t" else int(data[k]) for k in ["t","o","h","l","c","v"]}
             df = st.session_state.klines
             if df.empty or candle["t"] > df["t"].max():
                 df = pd.concat([df, pd.DataFrame([candle])], ignore_index=True)
@@ -221,8 +211,7 @@ def trading_page():
                 if not d.empty:
                     d.index = pd.to_datetime(d["t"], unit="ms")
                     chart_ph.line_chart(d["c"])
-        except:
-            pass
+        except: pass
 
     def depth_on_message(ws, msg):
         try:
@@ -234,65 +223,54 @@ def trading_page():
             left = bids.head(depth_limit).reset_index(drop=True)
             right = asks.head(depth_limit).reset_index(drop=True)
             combined = pd.concat([left, right], axis=1, keys=["Bids","Asks"])
-            if view=="Depth/Funding":
-                depth_ph.table(combined)
-        except:
-            pass
+            if view=="Depth/Funding": depth_ph.table(combined)
+        except: pass
 
     def fund_on_message(ws, msg):
         try:
             data = json.loads(msg)
-            rate = float(data.get("r", 0))
+            rate = float(data.get("r",0))
             st.session_state.fund_rate = rate
-            if view=="Depth/Funding":
-                fund_ph.metric(label="Funding Rate", value=f"{rate*100:.4f}%")
-        except:
-            pass
+            if view=="Depth/Funding": fund_ph.metric(label="Funding Rate", value=f"{rate*100:.4f}%")
+        except: pass
 
     if st.session_state.depth_symbol != symbol:
         st.session_state.depth_symbol = symbol
-        t1 = threading.Thread(target=run_ws, args=(KLINE_WS, kline_on_message), daemon=True); t1.start()
-        t2 = threading.Thread(target=run_ws, args=(DEPTH_WS, depth_on_message), daemon=True); t2.start()
-        t3 = threading.Thread(target=run_ws, args=(FUND_WS, fund_on_message), daemon=True); t3.start()
-        st.session_state.threads["kline_thread"] = t1
-        st.session_state.threads["depth_thread"] = t2
-        st.session_state.threads["fund_thread"] = t3
+        threads = [
+            (KLINE_WS, kline_on_message, "kline_thread"),
+            (DEPTH_WS, depth_on_message, "depth_thread"),
+            (FUND_WS, fund_on_message, "fund_thread")
+        ]
+        for ws_url, func, key in threads:
+            t = threading.Thread(target=run_ws, args=(ws_url, func), daemon=True)
+            t.start()
+            st.session_state.threads[key] = t
 
-def gemini_page():
-    st.subheader("Talk / Report — GEMINI API 연동")
+def talk_report_page():
+    st.subheader(st.session_state.selected_menu)
+    st.write("GEMINI API 데이터 연동")
     df = fetch_gemini_data()
-    if not df.empty:
-        st.dataframe(df)
-    else:
-        st.info("GEMINI 데이터 없음 / API Key 확인 필요")
+    if not df.empty: st.dataframe(df)
+    else: st.info("GEMINI 데이터 없음 / API Key 확인 필요")
 
 def assets_page():
-    st.subheader("Assets — 자리 (읽기전용)")
-    st.info("현재 REST/키 확인 기능 없음")
+    st.subheader("Assets — 자리 (REST 추후 추가하지 않음)")
+    st.info("이 탭은 현재 읽기전용 자리입니다. REST/키 체크 절대 없음.")
+    st.write("- 계좌 잔고: (미구현, REST 없음)")
+    st.write("- 포지션: (미구현, REST 없음)")
 
 # -------------------------
-# 메뉴 등록
+# 메뉴 호출
 # -------------------------
-menus = [
-    MenuItem("Home", home_page),
-    MenuItem("Markets", markets_page),
-    MenuItem("Trading", trading_page),
-    MenuItem("Talk", gemini_page),
-    MenuItem("Report", gemini_page),
-    MenuItem("Assets", assets_page)
-]
-
-# -------------------------
-# 메뉴 선택
-# -------------------------
-menu_names = [m.name for m in menus]
-selected_menu = st.radio("", menu_names, index=0, horizontal=True)
-
-# 선택된 메뉴 실행
-for m in menus:
-    if m.name == selected_menu:
-        m.func()
-        break
+menu_funcs = {
+    "Home": home_page,
+    "Markets": markets_page,
+    "Trading": trading_page,
+    "Talk": talk_report_page,
+    "Report": talk_report_page,
+    "Assets": assets_page
+}
+menu_funcs[selected_menu]()
 
 st.write("---")
 st.caption("WebSocket 전용 운영 — Markets/Trading 모두 REST 호출 없음")
