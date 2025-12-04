@@ -40,16 +40,18 @@ st.markdown(
 )
 
 # -------------------------------
-# 상위 메뉴 (가로 버튼)
+# 상위 메뉴 (가로 텍스트)
 # -------------------------------
-menu_cols = st.columns(len(MENU_ITEMS))
+menu_container = st.container()
+menu_cols = menu_container.columns(len(MENU_ITEMS))
 for idx, item in enumerate(MENU_ITEMS):
     is_active = st.session_state.selected_menu == item
-    color = "#28a745" if is_active else "#888888"  # 선택 메뉴 초록, 나머지 회색
+    color = "#28a745" if is_active else "#888888"  # 활성 메뉴 초록, 나머지 회색
+    # 메뉴 버튼
     if menu_cols[idx].button(item):
         st.session_state.selected_menu = item
-        st.experimental_rerun()  # 클릭 즉시 화면 갱신
-    # 텍스트만 표시 (체크 표시 제거)
+        st.experimental_rerun()
+    # 텍스트만 표시, 중복 표시 없음
     menu_cols[idx].markdown(
         f"<div style='text-align:center; color:{color}; font-weight:bold; font-size:18px;'>{item}</div>",
         unsafe_allow_html=True
