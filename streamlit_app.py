@@ -16,13 +16,9 @@ st.set_page_config(page_title="YNANCE ANALYST", layout="wide")
 # -------------------------
 SECRETS_PATH = "./secrets.json"
 API_KEYS = {}
-
-if hasattr(st, "secrets") and st.secrets:
-    API_KEYS = st.secrets
-else:
-    if os.path.exists(SECRETS_PATH):
-        with open(SECRETS_PATH, "r") as f:
-            API_KEYS = json.load(f)
+if os.path.exists(SECRETS_PATH):
+    with open(SECRETS_PATH, "r") as f:
+        API_KEYS = json.load(f)
 
 BINANCE_API_KEY = API_KEYS.get("BINANCE_API_KEY")
 BINANCE_SECRET_KEY = API_KEYS.get("BINANCE_SECRET_KEY")
@@ -32,8 +28,8 @@ ALPHA_VANTAGE_API = API_KEYS.get("ALPHA_VANTAGE_API")
 # -------------------------
 # Session State 초기화
 # -------------------------
-if "report_generated" not in st.session_state:
-    st.session_state.report_generated = False
+if "reports" not in st.session_state:
+    st.session_state.reports = []
 
 # -------------------------
 # 메뉴
@@ -80,33 +76,21 @@ def generate_report():
     """GEMINI 기반 가상 보고서 생성"""
     now = datetime.now()
     date_str = now.strftime("%Y-%m-%d %A %H:%M:%S")
-
-    # 전일까지 데이터 불러오기
     nasdaq = fetch_alpha_vantage("^IXIC")
     btc = fetch_binance("BTCUSDT")
     
-    report = f"### Report — Market & Crypto Analysis\n**작성일:** {date_str}\n\n"
-    
-    # 1. 자본시장 이슈
-    report += "### 1. 전일까지의 자본시장 이슈\nGEMINI 모니터링 기반 자본시장 뉴스, 이벤트 요약\n\n"
-    
-    # 2. 이벤트
-    report += "### 2. 전일까지의 이벤트\n경제지표 발표, 기업 실적, 정책 이벤트 등 요약\n\n"
-    
-    # 3. NASDAQ/BTC 전일 상황
-    if not nasdaq.empty:
-        report += f"### 3. 전일까지 나스닥/비트코인 상황\nNASDAQ 전일 종가: {nasdaq['4. close'].iloc[-1]:,.2f} USD\n"
-    else:
-        report += "NASDAQ 데이터 없음\n"
-    if not btc.empty:
-        report += f"BTC 전일 종가: {btc['Close'].iloc[-1]:,.2f} USD\n"
-    else:
-        report += "BTC 데이터 없음\n\n"
-    
-    # 4. 종합 분석/예측
-    report += "### 4. 종합 분석/예측\n- Stock 시장 분석/예측: GEMINI 기반 기술적/시장 변수 종합\n- Crypto 시장 분석/예측: GEMINI 기반 기술적/시장 변수 종합\n"
-    report += "\n- 상승/하락/횡보 가능성 및 장기/중기/단기 전략 추천 포함\n"
-    
+    # 실제 보고서 내용 구조
+    report = {
+        "title": f"Report — {date_str}",
+        "date": date_str,
+        "market_issues": "GEMINI 모니터링 기반 자본시장 뉴스, 이벤트 요약",
+        "events": "경제지표 발표, 기업 실적, 정책 이벤트 등 요약",
+        "nasdaq_summary": f"NASDAQ 전일 종가: {nasdaq['4. close'].iloc[-1]:,.2f} USD" if not nasdaq.empty else "NASDAQ 데이터 없음",
+        "btc_summary": f"BTC 전일 종가: {btc['Close'].iloc[-1]:,.2f} USD" if not btc.empty else "BTC 데이터 없음",
+        "stock_analysis": "Stock 시장 분석/예측: GEMINI 기반 기술적/시장 변수 종합",
+        "crypto_analysis": "Crypto 시장 분석/예측: GEMINI 기반 기술적/시장 변수 종합",
+        "strategy": "상승/하락/횡보 가능성 및 장기/중기/단기 전략 추천 포함"
+    }
     return report
 
 # -------------------------
@@ -116,8 +100,15 @@ if selected_menu == "Report":
     st.subheader("Report — Market & Crypto Analysis")
     
     if st.button("보고서 생성"):
-        st.session_state.report_generated = True
+        new_report = generate_report()
+        st.session_state.reports.append(new_report)
     
-    if st.session_state.report_generated:
-        report_content = generate_report()
-        st.markdown(report_content)
+    if st.session_state.reports:
+        report_titles = [r["title"] for r in st.session_state.reports]
+        selected = st.selectbox("보고서 선택", report_titles)
+        # 선택한 보고서 내용 출력
+        report = next(r for r in st.session_state.reports if r["title"] == selected)
+        st.markdown(f"### 1. 전일까지의 자본시장 이슈\n{report['market_issues']}")
+        st.markdown(f"### 2. 전일까지의 이벤트\n{report['events']}")
+        st.markdown(f"### 3. 전일까지 나스닥/비트코인 상황\n{report['nasdaq_summary']}\n{report['btc_summary']}")
+        st.markdown(f"### 4. 종합 분석/예측\n- {report['stock_analysis']}\n- {report['crypto_analysis']}\n- {report['strategy']}")
