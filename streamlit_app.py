@@ -35,36 +35,24 @@ except Exception as e:
 # 상단 타이틀
 # -------------------------------
 st.markdown(
-    """
-    <h1 style='text-align:center; color:#333333; margin-bottom: 5px;'>YNANCE ANALYST</h1>
-    """,
+    "<h1 style='text-align:center; color:#333333; margin-bottom:10px;'>YNANCE ANALYST</h1>",
     unsafe_allow_html=True
 )
 
 # -------------------------------
-# 상위 메뉴 (텍스트 버튼 스타일)
+# 상위 메뉴 (가로 텍스트 버튼)
 # -------------------------------
-menu_html = ""
-for item in MENU_ITEMS:
-    color = "#28a745" if st.session_state.selected_menu == item else "#888888"
-    menu_html += f"""
-        <span style='margin-right:20px; cursor:pointer; color:{color}; font-weight:bold;' 
-              onclick="window.streamlit.setComponentValue('{item}')">{item}</span>
-    """
-st.markdown(
-    f"<div style='text-align:left; margin-left:50px;'>{menu_html}</div>",
-    unsafe_allow_html=True
-)
-
-# -------------------------------
-# Streamlit 버튼 대체용 JS 이벤트 감지
-# -------------------------------
-# st.button 대신 click 시 session_state 변경
-# Streamlit 자체에서는 JS click 이벤트를 직접 처리 불가 → 대신 각 메뉴별 버튼 생성
-cols = st.columns(len(MENU_ITEMS))
+menu_cols = st.columns(len(MENU_ITEMS))
 for idx, item in enumerate(MENU_ITEMS):
-    if cols[idx].button(item):
+    is_active = st.session_state.selected_menu == item
+    color = "#28a745" if is_active else "#888888"  # 선택 시 초록, 기본 회색
+    if menu_cols[idx].button(item):
         st.session_state.selected_menu = item
+    # 버튼 스타일 변경
+    menu_cols[idx].markdown(
+        f"<div style='text-align:center; color:{color}; font-weight:bold;'>{item}</div>",
+        unsafe_allow_html=True
+    )
 
 # -------------------------------
 # 화면 내용 출력 함수
