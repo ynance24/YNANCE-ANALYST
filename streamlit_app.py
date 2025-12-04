@@ -40,34 +40,20 @@ st.markdown(
 )
 
 # -------------------------------
-# 메뉴 (가로 정렬 + 클릭 시 즉시 전환 + 선택 메뉴 색상 변경)
+# 상위 메뉴 (가로 버튼)
 # -------------------------------
-selected_menu = st.radio(
-    "",
-    MENU_ITEMS,
-    index=MENU_ITEMS.index(st.session_state.selected_menu),
-    horizontal=True
-)
-st.session_state.selected_menu = selected_menu
-
-# CSS로 선택 메뉴 색상 변경
-st.markdown(
-    """
-    <style>
-    div[role="radiogroup"] > label > div {
-        display: inline-block;
-        margin-right: 25px;
-        font-weight: bold;
-        font-size: 18px;
-        color: #888888;
-    }
-    div[role="radiogroup"] > label[aria-checked="true"] > div {
-        color: #006400 !important;  /* 선택 메뉴 어두운 녹색 */
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+menu_cols = st.columns(len(MENU_ITEMS))
+for idx, item in enumerate(MENU_ITEMS):
+    is_active = st.session_state.selected_menu == item
+    color = "#28a745" if is_active else "#888888"  # 선택 메뉴 초록, 나머지 회색
+    if menu_cols[idx].button(item):
+        st.session_state.selected_menu = item
+        st.experimental_rerun()  # 클릭 즉시 화면 갱신
+    # 텍스트만 표시 (체크 표시 제거)
+    menu_cols[idx].markdown(
+        f"<div style='text-align:center; color:{color}; font-weight:bold; font-size:18px;'>{item}</div>",
+        unsafe_allow_html=True
+    )
 
 # -------------------------------
 # 화면 내용 출력 함수
