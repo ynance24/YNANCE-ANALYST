@@ -3,8 +3,11 @@ import streamlit as st
 import pandas as pd
 import requests
 import json
-from datetime import datetime
 import os
+from datetime import datetime
+import websocket
+import threading
+import time
 
 # -------------------------
 # Config
@@ -30,6 +33,8 @@ ALPHA_VANTAGE_API = API_KEYS.get("ALPHA_VANTAGE_API")
 # -------------------------
 if "home_data" not in st.session_state:
     st.session_state.home_data = {}
+if "btc_price" not in st.session_state:
+    st.session_state.btc_price = None
 
 # -------------------------
 # 메뉴
@@ -54,24 +59,6 @@ def fetch_alpha_vantage(symbol):
         return df
     except Exception as e:
         st.warning(f"Alpha Vantage API 호출 실패 ({symbol}): {e}")
-        return pd.DataFrame()
-
-def fetch_binance(symbol="BTCUSDT"):
-    try:
-        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1d&limit=30"
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        df = pd.DataFrame(data, columns=[
-            "Open time","Open","High","Low","Close","Volume","Close time",
-            "Quote asset volume","Num trades","Taker buy base","Taker buy quote","Ignore"
-        ])
-        df["Open time"] = pd.to_datetime(df["Open time"], unit="ms")
-        numeric_cols = ["Open","High","Low","Close","Volume"]
-        df[numeric_cols] = df[numeric_cols].astype(float)
-        return df[["Open time"] + numeric_cols]
-    except Exception as e:
-        st.warning(f"Binance API 호출 실패 ({symbol}): {e}")
         return pd.DataFrame()
 
 def fetch_fng_crypto():
@@ -110,30 +97,49 @@ def fetch_fred(series_id):
         return pd.DataFrame()
 
 # -------------------------
+# Binance WebSocket
+# -------------------------
+def on_message(ws, message):
+    import json
+    data = json.loads(message)
+    price = float(data["p"])
+    st.session_state.btc_price = price
+
+def start_binance_ws(symbol="btcusdt"):
+    ws_url = f"wss://stream.binance.com:9443/ws/{symbol}@trade"
+    ws = websocket.WebSocketApp(ws_url, on_message=on_message)
+    ws.run_forever()
+
+# WebSocket thread 시작
+if "ws_started" not in st.session_state:
+    st.session_state.ws_started = True
+    threading.Thread(target=start_binance_ws, daemon=True).start()
+    time.sleep(1)  # 연결 안정화
+
+# -------------------------
 # Home 화면
 # -------------------------
 if selected_menu == "Home":
     st.subheader("Home — Market Overview & Indicators")
 
-    # NASDAQ / KOSPI / BTC 전일 종가
+    # NASDAQ / KOSPI 전일 종가
     col1, col2, col3 = st.columns(3)
     with col1:
         nasdaq = fetch_alpha_vantage("^IXIC")
         if not nasdaq.empty:
             st.line_chart(nasdaq["4. close"])
         st.write("NASDAQ 전일 종가")
-
     with col2:
         kospi = fetch_alpha_vantage("^KS11")
         if not kospi.empty:
             st.line_chart(kospi["4. close"])
         st.write("KOSPI 전일 종가")
-
     with col3:
-        btc = fetch_binance("BTCUSDT")
-        if not btc.empty:
-            st.line_chart(btc["Close"])
-        st.write("BTC 전일 종가")
+        btc_price = st.session_state.btc_price
+        if btc_price:
+            st.metric("BTC 현재가", btc_price)
+        else:
+            st.write("BTC WebSocket 연결 대기 중...")
 
     # Fear & Greed Index
     col4, col5 = st.columns(2)
@@ -159,4 +165,4 @@ if selected_menu == "Home":
             st.line_chart(df.set_index("date")["value"])
             st.write(name)
 
-    st.caption("데이터는 전일 종가/전일 시점 기준으로 REST API에서 가져옵니다.")
+    st.caption("데이터는 전일 종가/실시간 WebSocket 기반 BTC 가격, REST API 기준으로 가져옵니다.")
