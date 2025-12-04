@@ -4,3 +4,4 @@ numpy
 requests
 python-binance
 websocket-client
+matplotlib
