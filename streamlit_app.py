@@ -79,7 +79,6 @@ def generate_report():
     nasdaq = fetch_alpha_vantage("^IXIC")
     btc = fetch_binance("BTCUSDT")
     
-    # 실제 보고서 내용 구조
     report = {
         "title": f"Report — {date_str}",
         "date": date_str,
@@ -106,7 +105,6 @@ if selected_menu == "Report":
     if st.session_state.reports:
         report_titles = [r["title"] for r in st.session_state.reports]
         selected = st.selectbox("보고서 선택", report_titles)
-        # 선택한 보고서 내용 출력
         report = next(r for r in st.session_state.reports if r["title"] == selected)
         st.markdown(f"### 1. 전일까지의 자본시장 이슈\n{report['market_issues']}")
         st.markdown(f"### 2. 전일까지의 이벤트\n{report['events']}")
