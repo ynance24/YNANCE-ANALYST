@@ -35,8 +35,6 @@ if "home_data" not in st.session_state:
     st.session_state.home_data = {}
 if "btc_price" not in st.session_state:
     st.session_state.btc_price = None
-if "ws_started" not in st.session_state:
-    st.session_state.ws_started = False
 
 # -------------------------
 # 메뉴
@@ -48,7 +46,7 @@ selected_menu = st.radio("", menus, index=0, horizontal=True)
 # Helper Functions
 # -------------------------
 def fetch_alpha_vantage(symbol):
-    """NASDAQ / KOSPI 전일 종가 차트용"""
+    """Alpha Vantage 전일 종가 데이터"""
     if not ALPHA_VANTAGE_API:
         return pd.DataFrame()
     try:
@@ -85,7 +83,7 @@ def fetch_fng_stock():
         return {"value":0,"classification":"Unknown"}
 
 def fetch_fred(series_id):
-    """FRED 주요 지표"""
+    """FRED 지표"""
     if not FRED_API_KEY:
         return pd.DataFrame()
     try:
@@ -116,7 +114,8 @@ def start_binance_ws(symbol="btcusdt"):
     ws = websocket.WebSocketApp(ws_url, on_message=on_message)
     ws.run_forever()
 
-if not st.session_state.ws_started:
+# WebSocket thread 시작
+if "ws_started" not in st.session_state:
     st.session_state.ws_started = True
     threading.Thread(target=start_binance_ws, daemon=True).start()
     time.sleep(1)  # 연결 안정화
@@ -127,7 +126,7 @@ if not st.session_state.ws_started:
 if selected_menu == "Home":
     st.subheader("Home — Market Overview & Indicators")
 
-    # 전일 종가 차트: NASDAQ / KOSPI / BTC
+    # NASDAQ / KOSPI 전일 종가
     col1, col2, col3 = st.columns(3)
     with col1:
         nasdaq = fetch_alpha_vantage("^IXIC")
@@ -140,13 +139,13 @@ if selected_menu == "Home":
         kospi = fetch_alpha_vantage("^KS11")
         if not kospi.empty:
             st.line_chart(kospi["4. close"])
-            st.write(f"KOSPI 전일 종가: {kospi['4. close'].iloc[-1]:,.2f} KRW")
+            st.write(f"KOSPI 전일 종가: {kospi['4. close'].iloc[-1]:,.0f} KRW")
         else:
             st.write("KOSPI 데이터 없음")
     with col3:
         btc_price = st.session_state.btc_price
         if btc_price:
-            st.metric("BTC 실시간 가격", f"{btc_price:,.2f} USD")
+            st.metric("BTC 현재가", f"{btc_price:,.2f} USD")
         else:
             st.write("BTC WebSocket 연결 대기 중...")
 
@@ -159,7 +158,7 @@ if selected_menu == "Home":
     with col5:
         st.metric("Crypto F&G", f"{fng_crypto['value']}", f"{fng_crypto['classification']}")
 
-    # FRED 주요 경제지표
+    # FRED 주요 지표
     st.markdown("### FRED 주요 경제지표")
     fred_series = {
         "DXY": "DTWEXBGS",
@@ -172,8 +171,8 @@ if selected_menu == "Home":
         df = fetch_fred(series)
         if not df.empty:
             st.line_chart(df.set_index("date")["value"])
-            st.write(name)
+            st.write(f"{name}: {df['value'].iloc[-1]:,.2f}")
         else:
             st.write(f"{name} 데이터 없음")
 
-    st.caption("데이터는 전일 종가 기준 차트(Alpha Vantage, Binance WebSocket)와 REST API(FRED, F&G)에서 가져옵니다.")
+    st.caption("데이터는 전일 종가/실시간 WebSocket BTC 가격, REST API 기준으로 가져옵니다.")
