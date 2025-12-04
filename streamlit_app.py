@@ -1,175 +1,146 @@
-# streamlit_app.py
+# streamlit_app_home.py
 import streamlit as st
 import pandas as pd
+import numpy as np
 import requests
-import json
 from datetime import datetime, timedelta
-import os
+from alpha_vantage.timeseries import TimeSeries
+from binance.client import Client
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from io import BytesIO
 
 # -------------------------
 # Config
 # -------------------------
-st.set_page_config(page_title="YNANCE ANALYST", layout="wide")
+st.set_page_config(page_title="YNANCE Home Dashboard", layout="wide")
+st.markdown("# YNANCE Home Dashboard", unsafe_allow_html=True)
 
 # -------------------------
-# secrets.json 불러오기
+# Load secrets.json
 # -------------------------
+import json, os
 SECRETS_PATH = "./secrets.json"
-API_KEYS = {}
-if os.path.exists(SECRETS_PATH):
-    with open(SECRETS_PATH, "r") as f:
-        API_KEYS = json.load(f)
+with open(SECRETS_PATH, "r") as f:
+    secrets = json.load(f)
 
-BINANCE_API_KEY = API_KEYS.get("BINANCE_API_KEY")
-BINANCE_SECRET_KEY = API_KEYS.get("BINANCE_SECRET_KEY")
-FRED_API_KEY = API_KEYS.get("FRED_API_KEY")
-ALPHA_VANTAGE_API = API_KEYS.get("ALPHA_VANTAGE_API")
-COINGECKO_API = API_KEYS.get("COINGECKO_API")
-GEMINI_API_KEY = API_KEYS.get("GEMINI_API_KEY")
+ALPHA_API = secrets.get("ALPHA_VANTAGE_API")
+BINANCE_API = secrets.get("BINANCE_API_KEY")
+BINANCE_SECRET = secrets.get("BINANCE_SECRET_KEY")
+FRED_API = secrets.get("FRED_API_KEY")
+COINGECKO_API = secrets.get("COINGECKO_API")
+# -------------------------
+# Helper functions
+# -------------------------
+def get_alpha_weekly(symbol):
+    ts = TimeSeries(key=ALPHA_API, output_format='pandas')
+    data, _ = ts.get_weekly(symbol=symbol)
+    data = data.sort_index()
+    data['MA20'] = data['4. close'].rolling(20).mean()
+    data['EMA20'] = data['4. close'].ewm(span=20, adjust=False).mean()
+    delta = data['4. close'].diff()
+    up, down = delta.clip(lower=0), -delta.clip(upper=0)
+    roll_up, roll_down = up.rolling(14).mean(), down.rolling(14).mean()
+    RS = roll_up / roll_down
+    data['RSI'] = 100 - (100 / (1 + RS))
+    data['MACD'] = data['4. close'].ewm(span=12, adjust=False).mean() - data['4. close'].ewm(span=26, adjust=False).mean()
+    return data.tail(52)
+
+def get_binance_weekly(symbol):
+    client = Client(BINANCE_API, BINANCE_SECRET)
+    klines = client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_1WEEK, limit=52)
+    df = pd.DataFrame(klines, columns=[
+        "open_time","open","high","low","close","volume",
+        "close_time","quote_asset_volume","trades",
+        "taker_base_vol","taker_quote_vol","ignore"
+    ])
+    df['open'] = df['open'].astype(float)
+    df['high'] = df['high'].astype(float)
+    df['low'] = df['low'].astype(float)
+    df['close'] = df['close'].astype(float)
+    df['volume'] = df['volume'].astype(float)
+    df['MA20'] = df['close'].rolling(20).mean()
+    df['EMA20'] = df['close'].ewm(span=20, adjust=False).mean()
+    delta = df['close'].diff()
+    up, down = delta.clip(lower=0), -delta.clip(upper=0)
+    roll_up, roll_down = up.rolling(14).mean(), down.rolling(14).mean()
+    RS = roll_up / roll_down
+    df['RSI'] = 100 - (100 / (1 + RS))
+    df['MACD'] = df['close'].ewm(span=12, adjust=False).mean() - df['close'].ewm(span=26, adjust=False).mean()
+    return df
+
+def get_fred_series(series_id):
+    url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={FRED_API}&file_type=json"
+    r = requests.get(url)
+    data = r.json().get("observations", [])
+    df = pd.DataFrame(data)
+    df['date'] = pd.to_datetime(df['date'])
+    df['value'] = pd.to_numeric(df['value'], errors='coerce')
+    return df
+
+def get_crypto_sentiment():
+    url = "https://api.alternative.me/fng/?limit=1&format=json"
+    r = requests.get(url)
+    data = r.json().get("data", [{}])[0]
+    return int(data.get("value",0)), data.get("value_classification","Unknown")
+
+def plot_candlestick(df, title="Candlestick"):
+    fig, ax = plt.subplots(figsize=(8,3))
+    ax.plot(df.index, df['close'], label='Close', color='blue')
+    ax.plot(df.index, df['MA20'], label='MA20', color='orange')
+    ax.plot(df.index, df['EMA20'], label='EMA20', color='green')
+    ax.set_title(title)
+    ax.legend()
+    plt.xticks(rotation=45)
+    st.pyplot(fig)
 
 # -------------------------
-# CSS
+# Home Layout
 # -------------------------
-st.markdown("""
-<style>
-body {background-color: #f5f5f5;}
-</style>
-""", unsafe_allow_html=True)
-st.markdown("# YNANCE ANALYST", unsafe_allow_html=True)
+st.subheader("📊 상단 영역: NASDAQ / KOSPI / BTC")
+col1, col2, col3 = st.columns(3)
 
-# -------------------------
-# Session State 초기화
-# -------------------------
-if "home_data" not in st.session_state: st.session_state.home_data = {}
+with col1:
+    nasdaq = get_alpha_weekly("^IXIC")  # Alpha Vantage NASDAQ symbol
+    last_close = nasdaq['4. close'].iloc[-1]
+    prev_close = nasdaq['4. close'].iloc[-2]
+    vol_change = (nasdaq['5. volume'].iloc[-1] - nasdaq['5. volume'].iloc[-2]) / nasdaq['5. volume'].iloc[-2] * 100
+    st.metric("NASDAQ Close", f"{last_close:.2f}", delta=f"{last_close-prev_close:.2f}")
+    st.metric("Volume Change (%)", f"{vol_change:.2f}%")
+    plot_candlestick(nasdaq, "NASDAQ 주봉(52주)")
 
-# -------------------------
-# 메뉴
-# -------------------------
-menus = ["Home", "Markets", "Trading", "Talk", "Report", "Assets"]
-selected_menu = st.radio("", menus, index=0, horizontal=True)
+with col2:
+    kospi = get_alpha_weekly("KOSPI")  # Alpha Vantage KOSPI symbol placeholder
+    last_close = kospi['4. close'].iloc[-1]
+    prev_close = kospi['4. close'].iloc[-2]
+    vol_change = (kospi['5. volume'].iloc[-1] - kospi['5. volume'].iloc[-2]) / kospi['5. volume'].iloc[-2] * 100
+    st.metric("KOSPI Close", f"{last_close:.2f}", delta=f"{last_close-prev_close:.2f}")
+    st.metric("Volume Change (%)", f"{vol_change:.2f}%")
+    plot_candlestick(kospi, "KOSPI 주봉(52주)")
 
-# -------------------------
-# Helper Functions
-# -------------------------
-def fetch_alpha_vantage(symbol, interval="daily"):
-    """Alpha Vantage 주식/ETF 시세 가져오기"""
-    if not ALPHA_VANTAGE_API:
-        return pd.DataFrame()
-    url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol={symbol}&apikey={ALPHA_VANTAGE_API}&outputsize=compact"
-    resp = requests.get(url)
-    if resp.ok:
-        data = resp.json().get("Time Series (Daily)", {})
-        df = pd.DataFrame.from_dict(data, orient="index").astype(float)
-        df.index = pd.to_datetime(df.index)
-        df = df.sort_index()
-        return df
-    return pd.DataFrame()
+with col3:
+    btc = get_binance_weekly("BTCUSDT")
+    last_close = btc['close'].iloc[-1]
+    prev_close = btc['close'].iloc[-2]
+    vol_change = (btc['volume'].iloc[-1] - btc['volume'].iloc[-2]) / btc['volume'].iloc[-2] * 100
+    st.metric("BTC Close", f"{last_close:.2f}", delta=f"{last_close-prev_close:.2f}")
+    st.metric("Volume Change (%)", f"{vol_change:.2f}%")
+    plot_candlestick(btc, "BTC 주봉(52주)")
 
-def fetch_binance(symbol="BTCUSDT"):
-    """Binance에서 전일 종가 데이터 가져오기"""
-    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1d&limit=30"
-    resp = requests.get(url)
-    if resp.ok:
-        data = resp.json()
-        df = pd.DataFrame(data, columns=["Open time","Open","High","Low","Close","Volume","Close time","Quote asset volume","Num trades","Taker buy base","Taker buy quote","Ignore"])
-        df["Open time"] = pd.to_datetime(df["Open time"], unit="ms")
-        numeric_cols = ["Open","High","Low","Close","Volume"]
-        df[numeric_cols] = df[numeric_cols].astype(float)
-        return df[["Open time"] + numeric_cols]
-    return pd.DataFrame()
+st.subheader("📈 중단 영역: 미국 본원통화, 미국채 금리, DXY")
+col1, col2, col3 = st.columns(3)
+with col1:
+    m2 = get_fred_series("M2SL")  # M2 예시
+    st.metric("M2 통화량", f"{m2['value'].iloc[-1]:,.0f}", delta=f"{m2['value'].iloc[-1]-m2['value'].iloc[-2]:,.0f}")
+with col2:
+    treasury_10y = get_fred_series("DGS10")
+    treasury_2y = get_fred_series("DGS2")
+    spread = treasury_10y['value'].iloc[-1] - treasury_2y['value'].iloc[-1]
+    st.metric("10Y-2Y 금리차", f"{spread:.2f}%")
+with col3:
+    dxy = get_fred_series("DTWEXBGS")
+    st.metric("DXY", f"{dxy['value'].iloc[-1]:.2f}")
 
-def fetch_coingecko_price(id="bitcoin"):
-    """CoinGecko 시세 가져오기"""
-    url = f"https://api.coingecko.com/api/v3/coins/{id}/market_chart?vs_currency=usd&days=30"
-    resp = requests.get(url)
-    if resp.ok:
-        data = resp.json()
-        prices = pd.DataFrame(data["prices"], columns=["timestamp","price"])
-        prices["timestamp"] = pd.to_datetime(prices["timestamp"], unit="ms")
-        return prices
-    return pd.DataFrame()
-
-def fetch_fred(series_id):
-    """FRED 데이터 가져오기"""
-    if not FRED_API_KEY: return pd.DataFrame()
-    url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={FRED_API_KEY}&file_type=json"
-    resp = requests.get(url)
-    if resp.ok:
-        data = resp.json().get("observations", [])
-        df = pd.DataFrame(data)
-        if not df.empty:
-            df["date"] = pd.to_datetime(df["date"])
-            df["value"] = pd.to_numeric(df["value"], errors="coerce")
-        return df
-    return pd.DataFrame()
-
-def fetch_fng_crypto():
-    """Crypto Fear & Greed Index"""
-    try:
-        resp = requests.get("https://api.alternative.me/fng/?limit=1&crypto=1")
-        if resp.ok:
-            data = resp.json().get("data", [{}])[0]
-            return {"value": int(data.get("value",0)), "classification": data.get("value_classification","Unknown")}
-    except:
-        return {"value":0,"classification":"Unknown"}
-
-def fetch_fng_stock():
-    """Stock Fear & Greed Index"""
-    try:
-        resp = requests.get("https://api.alternative.me/fng/?limit=1")
-        if resp.ok:
-            data = resp.json().get("data", [{}])[0]
-            return {"value": int(data.get("value",0)), "classification": data.get("value_classification","Unknown")}
-    except:
-        return {"value":0,"classification":"Unknown"}
-
-# -------------------------
-# Home 화면
-# -------------------------
-if selected_menu == "Home":
-    st.subheader("Home — Market Overview & Indicators")
-    
-    # 전일 종가 기반 자본시장
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        nasdaq = fetch_alpha_vantage("^IXIC")
-        if not nasdaq.empty:
-            st.line_chart(nasdaq["4. close"])
-        st.write("NASDAQ 전일 종가")
-    with col2:
-        kospi = fetch_alpha_vantage("^KS11")
-        if not kospi.empty:
-            st.line_chart(kospi["4. close"])
-        st.write("KOSPI 전일 종가")
-    with col3:
-        btc = fetch_binance("BTCUSDT")
-        if not btc.empty:
-            st.line_chart(btc["Close"])
-        st.write("BTC 전일 종가")
-    
-    # Fear & Greed Index
-    col4, col5 = st.columns(2)
-    fng_stock = fetch_fng_stock()
-    fng_crypto = fetch_fng_crypto()
-    with col4:
-        st.metric("Stock F&G", f"{fng_stock['value']}", f"{fng_stock['classification']}")
-    with col5:
-        st.metric("Crypto F&G", f"{fng_crypto['value']}", f"{fng_crypto['classification']}")
-    
-    # FRED 주요 지표
-    st.markdown("### FRED 주요 경제지표")
-    fred_series = {
-        "DXY": "DTWEXBGS",
-        "M2": "M2SL",
-        "US Federal Reserve Base Money": "BOGMBASE",
-        "10Y Treasury Rate": "DGS10",
-        "2Y Treasury Rate": "DGS2"
-    }
-    for name, series in fred_series.items():
-        df = fetch_fred(series)
-        if not df.empty:
-            st.line_chart(df.set_index("date")["value"])
-            st.write(name)
-
-    st.caption("데이터는 전일 종가/전일 시점 기준으로 REST API에서 가져옵니다.")
+st.subheader("🧠 하단 영역: 심리지표")
+nasdaq_fng, nasdaq_class = get_crypto_sentiment()
+st.metric("NASDAQ Fear & Greed", nasdaq_fng, nasdaq_class)
