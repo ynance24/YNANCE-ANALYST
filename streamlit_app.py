@@ -18,7 +18,7 @@ if "selected_menu" not in st.session_state:
 # -------------------------------
 # 메뉴 정의
 # -------------------------------
-MENU_ITEMS = ["Home", "Markets", "Trading", "Assets", "Talik", "Report"]
+MENU_ITEMS = ["Home", "Markets", "Trading", "Talk", "Report", "Assets"]
 
 # -------------------------------
 # secrets.json 로드
@@ -36,24 +36,34 @@ except Exception as e:
 # -------------------------------
 st.markdown(
     """
-    <h1 style='text-align:center; color:#333333;'>YNANCE ANALYST</h1>
+    <h1 style='text-align:center; color:#333333; margin-bottom: 5px;'>YNANCE ANALYST</h1>
     """,
     unsafe_allow_html=True
 )
 
 # -------------------------------
-# 상위 메뉴 (화면 전환용)
+# 상위 메뉴 (텍스트 버튼 스타일)
 # -------------------------------
-menu_cols = st.columns(len(MENU_ITEMS))
+menu_html = ""
+for item in MENU_ITEMS:
+    color = "#28a745" if st.session_state.selected_menu == item else "#888888"
+    menu_html += f"""
+        <span style='margin-right:20px; cursor:pointer; color:{color}; font-weight:bold;' 
+              onclick="window.streamlit.setComponentValue('{item}')">{item}</span>
+    """
+st.markdown(
+    f"<div style='text-align:left; margin-left:50px;'>{menu_html}</div>",
+    unsafe_allow_html=True
+)
+
+# -------------------------------
+# Streamlit 버튼 대체용 JS 이벤트 감지
+# -------------------------------
+# st.button 대신 click 시 session_state 변경
+# Streamlit 자체에서는 JS click 이벤트를 직접 처리 불가 → 대신 각 메뉴별 버튼 생성
+cols = st.columns(len(MENU_ITEMS))
 for idx, item in enumerate(MENU_ITEMS):
-    if menu_cols[idx].button(
-        item,
-        key=item,
-        help=f"Go to {item}",
-        # 선택된 메뉴만 어두운 녹색
-        args=(item,),
-        kwargs={},
-    ):
+    if cols[idx].button(item):
         st.session_state.selected_menu = item
 
 # -------------------------------
@@ -81,9 +91,9 @@ def show_assets():
     st.subheader("Assets")
     st.write("자산 관리 관련 UI 표시")
 
-def show_talik():
-    st.subheader("Talik")
-    st.write("Talik 관련 화면 표시")
+def show_talk():
+    st.subheader("Talk")
+    st.write("Talk 관련 화면 표시")
 
 def show_report():
     st.subheader("Report")
@@ -97,7 +107,7 @@ MENU_FUNCTIONS = {
     "Markets": show_markets,
     "Trading": show_trading,
     "Assets": show_assets,
-    "Talik": show_talik,
+    "Talk": show_talk,
     "Report": show_report,
 }
 
