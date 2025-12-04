@@ -1,13 +1,10 @@
-# streamlit_home.py
+# streamlit_app.py
 import streamlit as st
 import pandas as pd
 import requests
 import json
 import os
 from datetime import datetime
-import websocket
-import threading
-import time
 
 # -------------------------
 # Config
@@ -31,10 +28,14 @@ ALPHA_VANTAGE_API = API_KEYS.get("ALPHA_VANTAGE_API")
 # -------------------------
 # Session State 초기화
 # -------------------------
-if "btc_price" not in st.session_state:
-    st.session_state.btc_price = None
-if "ws_started" not in st.session_state:
-    st.session_state.ws_started = False
+if "home_data" not in st.session_state:
+    st.session_state.home_data = {}
+
+# -------------------------
+# 메뉴
+# -------------------------
+menus = ["Home", "Markets", "Trading", "Talk", "Report", "Assets"]
+selected_menu = st.radio("", menus, index=0, horizontal=True)
 
 # -------------------------
 # Helper Functions
@@ -56,118 +57,78 @@ def fetch_alpha_vantage(symbol):
         st.warning(f"Alpha Vantage API 호출 실패 ({symbol}): {e}")
         return pd.DataFrame()
 
-def fetch_fng_crypto():
-    """Crypto Fear & Greed Index"""
+def fetch_binance(symbol="BTCUSDT"):
+    """Binance 전일 종가 데이터"""
     try:
-        resp = requests.get("https://api.alternative.me/fng/?limit=1&crypto=1", timeout=10)
-        resp.raise_for_status()
-        data = resp.json().get("data", [{}])[0]
-        return {"value": int(data.get("value",0)), "classification": data.get("value_classification","Unknown")}
-    except:
-        return {"value":0,"classification":"Unknown"}
-
-def fetch_fng_stock():
-    """Stock Fear & Greed Index"""
-    try:
-        resp = requests.get("https://api.alternative.me/fng/?limit=1", timeout=10)
-        resp.raise_for_status()
-        data = resp.json().get("data", [{}])[0]
-        return {"value": int(data.get("value",0)), "classification": data.get("value_classification","Unknown")}
-    except:
-        return {"value":0,"classification":"Unknown"}
-
-def fetch_fred(series_id):
-    """FRED 지표"""
-    if not FRED_API_KEY:
-        return pd.DataFrame()
-    try:
-        url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={FRED_API_KEY}&file_type=json"
+        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1d&limit=30"
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
-        data = resp.json().get("observations", [])
-        df = pd.DataFrame(data)
-        if not df.empty:
-            df["date"] = pd.to_datetime(df["date"])
-            df["value"] = pd.to_numeric(df["value"], errors="coerce")
-        return df
+        data = resp.json()
+        df = pd.DataFrame(data, columns=[
+            "Open time","Open","High","Low","Close","Volume","Close time",
+            "Quote asset volume","Num trades","Taker buy base","Taker buy quote","Ignore"
+        ])
+        df["Open time"] = pd.to_datetime(df["Open time"], unit="ms")
+        numeric_cols = ["Open","High","Low","Close","Volume"]
+        df[numeric_cols] = df[numeric_cols].astype(float)
+        return df[["Open time"] + numeric_cols]
     except Exception as e:
-        st.warning(f"FRED API 호출 실패 ({series_id}): {e}")
+        st.warning(f"Binance API 호출 실패 ({symbol}): {e}")
         return pd.DataFrame()
-
-# -------------------------
-# Binance WebSocket
-# -------------------------
-def on_message(ws, message):
-    import json
-    data = json.loads(message)
-    price = float(data["p"])
-    st.session_state.btc_price = price
-
-def start_binance_ws(symbol="btcusdt"):
-    ws_url = f"wss://stream.binance.com:9443/ws/{symbol}@trade"
-    ws = websocket.WebSocketApp(ws_url, on_message=on_message)
-    ws.run_forever()
-
-# WebSocket 시작
-if not st.session_state.ws_started:
-    st.session_state.ws_started = True
-    threading.Thread(target=start_binance_ws, daemon=True).start()
-    time.sleep(1)  # 연결 안정화
 
 # -------------------------
 # Home 화면
 # -------------------------
-st.subheader("Home — Market Overview & Indicators")
+if selected_menu == "Home":
+    st.subheader("Home — Market Overview & Indicators")
 
-# NASDAQ / KOSPI / BTC 전일 종가
-col1, col2, col3 = st.columns(3)
-with col1:
-    nasdaq = fetch_alpha_vantage("^IXIC")
-    if not nasdaq.empty:
-        st.line_chart(nasdaq["4. close"])
-        st.write(f"NASDAQ 전일 종가: {nasdaq['4. close'].iloc[-1]:,.2f} USD")
-    else:
-        st.write("NASDAQ 데이터 없음")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        nasdaq = fetch_alpha_vantage("^IXIC")
+        if not nasdaq.empty:
+            st.line_chart(nasdaq["4. close"])
+        st.write("NASDAQ 전일 종가")
 
-with col2:
-    kospi = fetch_alpha_vantage("^KS11")
-    if not kospi.empty:
-        st.line_chart(kospi["4. close"])
-        st.write(f"KOSPI 전일 종가: {kospi['4. close'].iloc[-1]:,.0f} KRW")
-    else:
-        st.write("KOSPI 데이터 없음")
+    with col2:
+        kospi = fetch_alpha_vantage("^KS11")
+        if not kospi.empty:
+            st.line_chart(kospi["4. close"])
+        st.write("KOSPI 전일 종가")
 
-with col3:
-    btc_price = st.session_state.btc_price
-    if btc_price:
-        st.metric("BTC 현재가", f"{btc_price:,.2f} USD")
-    else:
-        st.write("BTC WebSocket 연결 대기 중...")
+    with col3:
+        btc = fetch_binance("BTCUSDT")
+        if not btc.empty:
+            st.line_chart(btc["Close"])
+        st.write("BTC 전일 종가")
 
-# Fear & Greed Index
-col4, col5 = st.columns(2)
-fng_stock = fetch_fng_stock()
-fng_crypto = fetch_fng_crypto()
-with col4:
-    st.metric("Stock F&G", f"{fng_stock['value']}", f"{fng_stock['classification']}")
-with col5:
-    st.metric("Crypto F&G", f"{fng_crypto['value']}", f"{fng_crypto['classification']}")
+# -------------------------
+# Report 메뉴
+# -------------------------
+elif selected_menu == "Report":
+    st.subheader("Report — Market & Crypto Analysis")
 
-# FRED 주요 지표
-st.markdown("### FRED 주요 경제지표")
-fred_series = {
-    "DXY": "DTWEXBGS",
-    "M2": "M2SL",
-    "US Federal Reserve Base Money": "BOGMBASE",
-    "10Y Treasury Rate": "DGS10",
-    "2Y Treasury Rate": "DGS2"
-}
-for name, series in fred_series.items():
-    df = fetch_fred(series)
-    if not df.empty:
-        st.line_chart(df.set_index("date")["value"])
-        st.write(f"{name}: {df['value'].iloc[-1]:,.2f}")
-    else:
-        st.write(f"{name} 데이터 없음")
+    # 전일 날짜/요일/시간
+    report_date = datetime.now() - pd.Timedelta(days=1)
+    report_info = f"보고서 작성일: {report_date.strftime('%Y-%m-%d %A %H:%M')}"
+    st.markdown(f"### {report_info}")
 
-st.caption("데이터는 전일 종가/실시간 WebSocket BTC 가격, REST API 기준으로 가져옵니다.")
+    # GEMINI 기반 데이터 모니터링 참고 (실제 데이터는 호출하지 않음)
+    st.markdown("#### Stock Market Analysis")
+    st.write("- 전일까지의 자본시장 이슈 요약")
+    st.write("- 전일까지 이벤트 요약")
+    st.write("- 전일까지 나스닥 상황 요약")
+    st.write("- 다방면의 변수 종합 분석 및 예측 (Stock)")
+
+    st.markdown("#### Crypto Market Analysis")
+    st.write("- 전일까지의 암호화폐 주요 이슈 요약")
+    st.write("- 전일까지 이벤트 요약")
+    st.write("- 전일까지 BTC/ETH 등 주요 코인 상황 요약")
+    st.write("- 다방면의 변수 종합 분석 및 예측 (Crypto)")
+
+    st.caption("데이터는 GEMINI 모니터링 기반이며, 시각화나 외부 URL은 포함하지 않습니다.")
+
+# -------------------------
+# 기타 메뉴는 빈 구조 유지
+# -------------------------
+else:
+    st.write(f"{selected_menu} 메뉴는 준비 중입니다.")
