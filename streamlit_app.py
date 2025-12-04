@@ -5,7 +5,6 @@ import requests
 import json
 from datetime import datetime
 import os
-import matplotlib.pyplot as plt
 
 # -------------------------
 # Config
@@ -25,18 +24,6 @@ BINANCE_API_KEY = API_KEYS.get("BINANCE_API_KEY")
 BINANCE_SECRET_KEY = API_KEYS.get("BINANCE_SECRET_KEY")
 FRED_API_KEY = API_KEYS.get("FRED_API_KEY")
 ALPHA_VANTAGE_API = API_KEYS.get("ALPHA_VANTAGE_API")
-COINGECKO_API = API_KEYS.get("COINGECKO_API")
-GEMINI_API_KEY = API_KEYS.get("GEMINI_API_KEY")
-
-# -------------------------
-# CSS
-# -------------------------
-st.markdown("""
-<style>
-body {background-color: #f5f5f5;}
-</style>
-""", unsafe_allow_html=True)
-st.markdown("# YNANCE ANALYST", unsafe_allow_html=True)
 
 # -------------------------
 # Session State 초기화
@@ -87,35 +74,6 @@ def fetch_binance(symbol="BTCUSDT"):
         st.warning(f"Binance API 호출 실패 ({symbol}): {e}")
         return pd.DataFrame()
 
-def fetch_coingecko_price(id="bitcoin"):
-    try:
-        url = f"https://api.coingecko.com/api/v3/coins/{id}/market_chart?vs_currency=usd&days=30"
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        prices = pd.DataFrame(data["prices"], columns=["timestamp","price"])
-        prices["timestamp"] = pd.to_datetime(prices["timestamp"], unit="ms")
-        return prices
-    except:
-        return pd.DataFrame()
-
-def fetch_fred(series_id):
-    if not FRED_API_KEY:
-        return pd.DataFrame()
-    try:
-        url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={FRED_API_KEY}&file_type=json"
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        data = resp.json().get("observations", [])
-        df = pd.DataFrame(data)
-        if not df.empty:
-            df["date"] = pd.to_datetime(df["date"])
-            df["value"] = pd.to_numeric(df["value"], errors="coerce")
-        return df
-    except Exception as e:
-        st.warning(f"FRED API 호출 실패 ({series_id}): {e}")
-        return pd.DataFrame()
-
 def fetch_fng_crypto():
     try:
         resp = requests.get("https://api.alternative.me/fng/?limit=1&crypto=1", timeout=10)
@@ -134,10 +92,29 @@ def fetch_fng_stock():
     except:
         return {"value":0,"classification":"Unknown"}
 
+def fetch_fred(series_id):
+    if not FRED_API_KEY:
+        return pd.DataFrame()
+    try:
+        url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={FRED_API_KEY}&file_type=json"
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json().get("observations", [])
+        df = pd.DataFrame(data)
+        if not df.empty:
+            df["date"] = pd.to_datetime(df["date"])
+            df["value"] = pd.to_numeric(df["value"], errors="coerce")
+        return df
+    except Exception as e:
+        st.warning(f"FRED API 호출 실패 ({series_id}): {e}")
+        return pd.DataFrame()
+
 # -------------------------
 # Home 화면
 # -------------------------
 if selected_menu == "Home":
+    st.subheader("Home — Market Overview & Indicators")
+
     # NASDAQ / KOSPI / BTC 전일 종가
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -145,11 +122,13 @@ if selected_menu == "Home":
         if not nasdaq.empty:
             st.line_chart(nasdaq["4. close"])
         st.write("NASDAQ 전일 종가")
+
     with col2:
         kospi = fetch_alpha_vantage("^KS11")
         if not kospi.empty:
             st.line_chart(kospi["4. close"])
         st.write("KOSPI 전일 종가")
+
     with col3:
         btc = fetch_binance("BTCUSDT")
         if not btc.empty:
