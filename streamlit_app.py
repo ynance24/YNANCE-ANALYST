@@ -4,13 +4,10 @@ import json
 # -------------------------------
 # 페이지 기본 설정
 # -------------------------------
-st.set_page_config(
-    page_title="Ynance Analyst",
-    layout="wide"
-)
+st.set_page_config(page_title="Ynance Analyst", layout="wide")
 
 # -------------------------------
-# 세션 상태 초기화
+# 세션 초기화
 # -------------------------------
 if "selected_menu" not in st.session_state:
     st.session_state.selected_menu = "Home"
@@ -35,30 +32,26 @@ except Exception as e:
 # 상단 타이틀
 # -------------------------------
 st.markdown(
-    "<h1 style='text-align:center; color:#333333; margin-bottom:5px;'>YNANCE ANALYST</h1>",
+    "<h1 style='text-align:center; color:#333333; margin-bottom:10px;'>YNANCE ANALYST</h1>",
     unsafe_allow_html=True
 )
 
 # -------------------------------
-# 상위 메뉴 (가로 텍스트)
+# 메뉴 버튼 (가로 정렬)
 # -------------------------------
-menu_container = st.container()
-menu_cols = menu_container.columns(len(MENU_ITEMS))
+menu_cols = st.columns(len(MENU_ITEMS))
 for idx, item in enumerate(MENU_ITEMS):
     is_active = st.session_state.selected_menu == item
-    color = "#28a745" if is_active else "#888888"  # 활성 메뉴 초록, 나머지 회색
-    # 메뉴 버튼
+    color = "#28a745" if is_active else "#888888"
     if menu_cols[idx].button(item):
         st.session_state.selected_menu = item
-        st.experimental_rerun()
-    # 텍스트만 표시, 중복 표시 없음
     menu_cols[idx].markdown(
         f"<div style='text-align:center; color:{color}; font-weight:bold; font-size:18px;'>{item}</div>",
         unsafe_allow_html=True
     )
 
 # -------------------------------
-# 화면 내용 출력 함수
+# 화면 내용 함수
 # -------------------------------
 def show_home():
     st.subheader("Home")
@@ -91,7 +84,7 @@ def show_report():
     st.write("리포트 및 통계 화면 표시")
 
 # -------------------------------
-# 메뉴별 함수 매핑
+# 메뉴 함수 매핑 및 출력
 # -------------------------------
 MENU_FUNCTIONS = {
     "Home": show_home,
@@ -102,7 +95,4 @@ MENU_FUNCTIONS = {
     "Report": show_report,
 }
 
-# -------------------------------
-# 선택 메뉴 화면 출력
-# -------------------------------
 MENU_FUNCTIONS[st.session_state.selected_menu]()
