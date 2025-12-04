@@ -40,31 +40,15 @@ st.markdown(
 )
 
 # -------------------------------
-# 상위 메뉴 (가로 텍스트 + 클릭 시 즉시 활성화)
+# 상위 메뉴 (가로 버튼)
 # -------------------------------
-menu_html = ""
-for item in MENU_ITEMS:
-    color = "#28a745" if st.session_state.selected_menu == item else "#888888"
-    menu_html += f"""
-    <span style='margin-right:20px; cursor:pointer; color:{color}; font-weight:bold; font-size:18px;'
-          onclick="document.dispatchEvent(new CustomEvent('streamlit:menu_click', {{detail:'{item}'}}))">{item}</span>
-    """
-
-st.markdown(
-    f"<div style='display:flex; justify-content:center; margin-bottom:20px;'>{menu_html}</div>",
-    unsafe_allow_html=True
-)
-
-# -------------------------------
-# JS 클릭 이벤트 처리
-# -------------------------------
-# Streamlit 자체에서는 JS 직접 이벤트를 처리 못하므로
-# streamlit_javascript 패키지를 이용해 클릭 처리 가능
-# 대신 간단히 한 번 클릭 시 바로 세션 업데이트 + 페이지 rerun
-for item in MENU_ITEMS:
-    if st.button(item, key=f"btn_{item}"):
+cols = st.columns(len(MENU_ITEMS))
+for idx, item in enumerate(MENU_ITEMS):
+    is_active = st.session_state.selected_menu == item
+    button_label = f"**{item}**" if is_active else item
+    button_color = "28a745" if is_active else "888888"
+    if cols[idx].button(button_label, key=f"menu_{item}"):
         st.session_state.selected_menu = item
-        st.experimental_rerun()  # 클릭 즉시 반영
 
 # -------------------------------
 # 화면 내용 출력 함수
