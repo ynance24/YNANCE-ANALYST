@@ -35,12 +35,12 @@ except Exception as e:
 # 상단 타이틀
 # -------------------------------
 st.markdown(
-    "<h1 style='text-align:center; color:#333333; margin-bottom:20px;'>YNANCE ANALYST</h1>",
+    "<h1 style='text-align:center; color:#333333; margin-bottom:5px;'>YNANCE ANALYST</h1>",
     unsafe_allow_html=True
 )
 
 # -------------------------------
-# 메뉴 (radio를 가로로 CSS 처리)
+# 메뉴 (가로 정렬 + 클릭 시 즉시 전환 + 선택 메뉴 색상 변경)
 # -------------------------------
 selected_menu = st.radio(
     "",
@@ -50,7 +50,7 @@ selected_menu = st.radio(
 )
 st.session_state.selected_menu = selected_menu
 
-# CSS로 radio 버튼 색상 변경
+# CSS로 선택 메뉴 색상 변경
 st.markdown(
     """
     <style>
@@ -62,7 +62,7 @@ st.markdown(
         color: #888888;
     }
     div[role="radiogroup"] > label[aria-checked="true"] > div {
-        color: #28a745 !important;
+        color: #006400 !important;  /* 선택 메뉴 어두운 녹색 */
     }
     </style>
     """,
