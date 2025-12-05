@@ -6,3 +6,4 @@ python-binance
 websocket-client
 matplotlib
 alpha_vantage
+google-generativeai
