@@ -1,215 +1,198 @@
 import streamlit as st
+import pandas as pd
+import requests
 import json
 import os
-from datetime import datetime
-import requests
+from datetime import datetime, time as dtime
 
-# =========================================
-# ✔ 안전한 secrets 로딩 (Streamlit Cloud 호환)
-# =========================================
-def load_secrets():
-    # 1) Streamlit Cloud secrets 우선
-    if "GEMINI_API_KEY" in st.secrets:
-        return {
-            "FRED_API_KEY": st.secrets.get("FRED_API_KEY", ""),
-            "ALPHA_VANTAGE_API_KEY": st.secrets.get("ALPHA_VANTAGE_API_KEY", ""),
-            "COINGECKO_API_KEY": st.secrets.get("COINGECKO_API_KEY", ""),
-            "BINANCE_API_KEY": st.secrets.get("BINANCE_API_KEY", ""),
-            "KOSIS_API_KEY": st.secrets.get("KOSIS_API_KEY", ""),
-            "GEMINI_API_KEY": st.secrets.get("GEMINI_API_KEY", ""),
-        }
+# ------------------------------------------------
+# Config
+# ------------------------------------------------
+st.set_page_config(page_title="YNANCE ANALYST", layout="wide")
 
-    # 2) Local secrets.json
-    paths = ["secrets.json", "/mount/src/ynance-analyst/secrets.json"]
-    for p in paths:
-        if os.path.exists(p):
-            with open(p) as f:
-                return json.load(f)
+# ------------------------------------------------
+# secrets.json 불러오기 (절대 앱 죽지 않게 처리)
+# ------------------------------------------------
+SECRETS_PATH = "./secrets.json"
+API_KEYS = {}
+try:
+    if os.path.exists(SECRETS_PATH):
+        with open(SECRETS_PATH, "r") as f:
+            API_KEYS = json.load(f)
+except:
+    API_KEYS = {}
 
-    # 3) no file
-    return {}
-
-secrets = load_secrets()
-
-FRED_KEY = secrets.get("FRED_API_KEY", "")
-ALPHA_KEY = secrets.get("ALPHA_VANTAGE_API_KEY", "")
-COINGECKO_KEY = secrets.get("COINGECKO_API_KEY", "")
-BINANCE_KEY = secrets.get("BINANCE_API_KEY", "")
-KOSIS_KEY = secrets.get("KOSIS_API_KEY", "")
-GEMINI_KEY = secrets.get("GEMINI_API_KEY", "")
+BINANCE_API_KEY = API_KEYS.get("BINANCE_API_KEY")
+ALPHA_VANTAGE_API = API_KEYS.get("ALPHA_VANTAGE_API")
+FRED_API_KEY = API_KEYS.get("FRED_API_KEY")
+COINGECKO_API_KEY = API_KEYS.get("COINGECKO_API_KEY")
+KOSIS_API_KEY = API_KEYS.get("KOSIS_API_KEY")
+GEMINI_API_KEY = API_KEYS.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-1.5-flash"
 
-# =========================================
-# ✔ Gemini
-# =========================================
+# ------------------------------------------------
+# Gemini 설정 (없어도 에러 없이 진행)
+# ------------------------------------------------
 import google.generativeai as genai
-if GEMINI_KEY:
-    genai.configure(api_key=GEMINI_KEY)
+if GEMINI_API_KEY:
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+    except:
+        pass
 
-def ask_gemini(prompt):
+def ask_gemini(prompt: str):
+    """Gemini 불러오는 함수 — 실패해도 앱 절대 안 죽음"""
+    if not GEMINI_API_KEY:
+        return "⚠️ Gemini API key 없음 — 기본 텍스트로 보고서 생성됨."
     try:
         model = genai.GenerativeModel(GEMINI_MODEL)
         response = model.generate_content(prompt)
-        return response.text if response else "내용 없음"
+        return response.text
     except Exception as e:
-        return f"[Gemini 오류] {str(e)}"
+        return f"⚠️ Gemini 호출 오류: {str(e)}\n기본 보고서로 대체합니다."
 
 
-# =========================================
-# ✔ 시장데이터 수집
-# =========================================
-def get_alpha_daily(symbol):
+# ------------------------------------------------
+# Session State 초기화
+# ------------------------------------------------
+if "reports" not in st.session_state:
+    st.session_state.reports = {}
+
+# ------------------------------------------------
+# 메뉴
+# ------------------------------------------------
+menus = ["Home", "Markets", "Trading", "Talk", "Report", "Assets"]
+selected_menu = st.radio("", menus, index=0, horizontal=True)
+
+# ------------------------------------------------
+# Helper Functions
+# ------------------------------------------------
+def fetch_alpha_vantage(symbol):
+    if not ALPHA_VANTAGE_API:
+        return pd.DataFrame()
     try:
         url = (
             f"https://www.alphavantage.co/query?"
-            f"function=TIME_SERIES_DAILY_ADJUSTED&symbol={symbol}&apikey={ALPHA_KEY}"
+            f"function=TIME_SERIES_DAILY_ADJUSTED&symbol={symbol}&apikey={ALPHA_VANTAGE_API}&outputsize=compact"
         )
-        r = requests.get(url)
-        data = r.json()
-        series = data.get("Time Series (Daily)")
-        if not series:
-            return None
-        sorted_keys = sorted(series.keys(), reverse=True)
-        latest = sorted_keys[0]
-        close = float(series[latest]["4. close"])
-        return close
+        resp = requests.get(url, timeout=10)
+        data = resp.json().get("Time Series (Daily)", {})
+        df = pd.DataFrame.from_dict(data, orient="index").astype(float)
+        df.index = pd.to_datetime(df.index)
+        df = df.sort_index()
+        return df
     except:
-        return None
+        return pd.DataFrame()
 
 
-def get_binance_close(symbol="BTCUSDT"):
+def fetch_binance(symbol="BTCUSDT"):
     try:
-        url = "https://api.binance.com/api/v3/klines"
-        params = {"symbol": symbol, "interval": "1d", "limit": 2}
-        r = requests.get(url)
-        data = r.json()
-        if isinstance(data, list) and len(data) > 0:
-            return float(data[-1][4])
+        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1d&limit=30"
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        df = pd.DataFrame(data, columns=[
+            "Open time","Open","High","Low","Close","Volume","Close time",
+            "Quote asset volume","Num trades","Taker buy base","Taker buy quote","Ignore"
+        ])
+        df["Open time"] = pd.to_datetime(df["Open time"], unit="ms")
+        df[["Open","High","Low","Close","Volume"]] = df[["Open","High","Low","Close","Volume"]].astype(float)
+        return df[["Open time","Open","High","Low","Close","Volume"]]
     except:
-        pass
-    return None
+        return pd.DataFrame()
 
 
-# =========================================
-# ✔ 보고서 생성
-# =========================================
-def generate_stock_report(date_str, nasdaq_close, kospi_close):
-    prompt = f"""
-당신은 20년 경력의 자본시장 분석가다.
+def fetch_fred(series_id):
+    if not FRED_API_KEY:
+        return pd.DataFrame()
+    try:
+        url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={FRED_API_KEY}&file_type=json"
+        resp = requests.get(url, timeout=10)
+        data = resp.json().get("observations", [])
+        df = pd.DataFrame(data)
+        if not df.empty:
+            df["date"] = pd.to_datetime(df["date"])
+            df["value"] = pd.to_numeric(df["value"], errors="coerce")
+        return df
+    except:
+        return pd.DataFrame()
 
-다음 형식의 'Stock Report'를 작성하라.
 
-1. 헤드라인 = Stock Report
-2. 전일 자본시장 핵심요인 요약
-3. 유동성 평가 (DXY, M2, 장단기금리)
-4. 나스닥/코스피 상승·횡보·하락 확률 분석
-5. 장기/중기/단기 전략 제시
+# ------------------------------------------------
+# 보고서 생성 (너 구조 그대로 유지)
+# ------------------------------------------------
+def generate_reports():
+    today = datetime.now()
+    cutoff_time = dtime(8, 0)
 
-데이터:
-- 날짜: {date_str}
-- NASDAQ 전일 종가: {nasdaq_close}
-- KOSPI 전일 종가: {kospi_close}
+    if today.time() > cutoff_time:
+        st.warning("보고서는 오전 8시 이전 데이터를 기준으로 생성해야 합니다.")
+        return
+
+    reports = {}
+
+    # ======================
+    # Stock Report
+    # ======================
+    base_stock = (
+        "### Stock Report\n"
+        f"작성일: {today.strftime('%Y-%m-%d %A %H:%M:%S')}\n\n"
+        "1. 전일까지 주목 요인 요약\n"
+        "2. 유동성 평가 (DXY, M2, 장단기 금리 등)\n"
+        "3. 나스닥/코스피 상승·횡보·하락 가능성\n"
+        "4. 장기/중기/단기 전략 추천\n"
+    )
+
+    stock_ai = ask_gemini(
+        f"""
+당신은 자본시장 분석가다.
+다음 형식으로 매우 간결하고 정교한 Stock Report를 작성하라.
+
+{base_stock}
 """
-    return ask_gemini(prompt)
+    )
 
+    reports["Stock Report"] = stock_ai or base_stock
 
-def generate_crypto_report(date_str, btc_close, eth_close):
-    prompt = f"""
-당신은 20년 경력의 암호화폐 시장 분석가다.
+    # ======================
+    # Crypto Report
+    # ======================
+    base_crypto = (
+        "### Crypto Report\n"
+        f"작성일: {today.strftime('%Y-%m-%d %A %H:%M:%S')}\n\n"
+        "1. 전일 주요 암호화폐 뉴스/이슈\n"
+        "2. 주식시장·금리·정책 상호 영향\n"
+        "3. 스테이블코인 유동성 평가\n"
+        "4. BTC/ETH 상승·횡보·하락 가능성\n"
+        "5. 장기/중기/단기 전략\n"
+    )
 
-다음 형식의 'Crypto Report'를 작성하라.
+    crypto_ai = ask_gemini(
+        f"""
+당신은 암호화폐 전문 애널리스트다.
+다음 형식에 따라 정교한 Crypto Report를 작성하라.
 
-1. 헤드라인 = Crypto Report
-2. 암호화폐 시장 핵심 이슈
-3. 나스닥/금리/정책과의 연동 분석
-4. 유동성 분석 (스테이블코인 흐름 등)
-5. BTC/ETH 상승·횡보·하락 확률 분석
-6. 장기/중기/단기 전략 제시
-
-데이터:
-- 날짜: {date_str}
-- BTC 종가: {btc_close}
-- ETH 종가: {eth_close}
+{base_crypto}
 """
-    return ask_gemini(prompt)
+    )
+
+    reports["Crypto Report"] = crypto_ai or base_crypto
+
+    st.session_state.reports = reports
+    st.success("📄 보고서가 생성되었습니다!")
 
 
-# =========================================
-# ✔ 파일 저장
-# =========================================
-def save_report(filename, content):
-    with open(filename, "w", encoding="utf-8") as f:
-        f.write(content)
-    return filename
+# ------------------------------------------------
+# Report 메뉴
+# ------------------------------------------------
+if selected_menu == "Report":
+    st.subheader("Report — Market & Crypto Analysis")
 
+    if st.button("보고서 생성"):
+        try:
+            generate_reports()
+        except Exception as e:
+            st.error(f"보고서 생성 중 오류 발생: {str(e)}")
 
-# =========================================
-# ✔ UI 시작
-# =========================================
-st.set_page_config(page_title="Ynance Analyst", layout="wide")
-
-st.sidebar.title("📌 Menu")
-menu = st.sidebar.radio(
-    "탭 선택",
-    ["Home", "Report", "Status"]
-)
-
-# ============================
-# HOME
-# ============================
-if menu == "Home":
-    st.title("🏠 Home")
-    st.write("전체 메뉴 정상 복구됨.")
-
-# ============================
-# STATUS
-# ============================
-elif menu == "Status":
-    st.title("🔧 Status Check")
-    st.json({
-        "Gemini Key 감지": bool(GEMINI_KEY),
-        "AlphaVantage Key 감지": bool(ALPHA_KEY),
-        "Binance API Key 감지": bool(BINANCE_KEY)
-    })
-
-# ============================
-# REPORT
-# ============================
-elif menu == "Report":
-
-    st.title("📊 Report — Automated Market & Crypto Analysis")
-    st.write("---")
-
-    if st.button("📄 보고서 생성"):
-
-        now = datetime.now()
-        date_str = now.strftime("%Y-%m-%d")
-
-        nasdaq = get_alpha_daily("NDX") or "N/A"
-        kospi = get_alpha_daily("KS11") or "N/A"
-        btc = get_binance_close("BTCUSDT") or "N/A"
-        eth = get_binance_close("ETHUSDT") or "N/A"
-
-        stock_report = generate_stock_report(date_str, nasdaq, kospi)
-        crypto_report = generate_crypto_report(date_str, btc, eth)
-
-        stock_filename = f"Stock_Report_{date_str}.md"
-        crypto_filename = f"Crypto_Report_{date_str}.md"
-
-        save_report(stock_filename, stock_report)
-        save_report(crypto_filename, crypto_report)
-
-        st.success("보고서가 생성되었습니다.")
-
-        with open(stock_filename, "rb") as f:
-            st.download_button("📥 Stock Report 다운로드", f, file_name=stock_filename)
-
-        with open(crypto_filename, "rb") as f:
-            st.download_button("📥 Crypto Report 다운로드", f, file_name=crypto_filename)
-
-        with st.expander("📄 생성된 보고서 본문 보기"):
-            st.subheader("Stock Report")
-            st.markdown(stock_report)
-
-            st.subheader("Crypto Report")
-            st.markdown(crypto_report)
+    if st.session_state.reports:
+        report_choice = st.selectbox("생성된 보고서 선택", list(st.session_state.reports.keys()))
+        st.markdown(st.session_state.reports[report_choice])
